@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Page Pulse — System Design & Architecture</title>
+  <meta name="description" content="Page Pulse production-scale system design: architecture, technology decisions, failure analysis, and observability plan for 10k audits/day." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#050511;--surf:rgba(255,255,255,.04);--surf2:rgba(255,255,255,.07);
+      --border:rgba(255,255,255,.09);
+      --p4:#a78bfa;--p5:#8b5cf6;--p6:#7c3aed;
+      --c4:#22d3ee;--c5:#06b6d4;
+      --g4:#4ade80;--r4:#f87171;--y4:#facc15;--pk4:#f472b6;
+      --txt:#f0eeff;--txt2:rgba(240,238,255,.6);--txt3:rgba(240,238,255,.3);
+      --font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+      --r:14px;--rs:10px;--tr:.22s cubic-bezier(.4,0,.2,1);
+      --sidebar:272px;
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:var(--font);background:var(--bg);color:var(--txt);min-height:100vh;overflow-x:hidden;line-height:1.6}
+    #bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+    .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.12;animation:drift 24s ease-in-out infinite alternate}
+    .o1{width:700px;height:700px;background:var(--p5);top:-250px;left:-200px}
+    .o2{width:500px;height:500px;background:var(--c4);bottom:-150px;right:-150px;animation-delay:-10s}
+    .o3{width:400px;height:400px;background:var(--pk4);top:50%;left:55%;transform:translate(-50%,-50%);animation-delay:-18s}
+    @keyframes drift{to{transform:translate(40px,30px) scale(1.08)}}
+    .grid{position:fixed;inset:0;z-index:0;pointer-events:none;
+      background:linear-gradient(rgba(139,92,246,.025) 1px,transparent 1px),
+                 linear-gradient(90deg,rgba(139,92,246,.025) 1px,transparent 1px);
+      background-size:56px 56px}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-thumb{background:rgba(139,92,246,.4);border-radius:3px}
+    .wrap{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh}
+
+    /* NAV */
+    .topnav{height:60px;border-bottom:1px solid var(--border);background:rgba(5,5,17,.88);backdrop-filter:blur(24px);position:sticky;top:0;z-index:300;display:flex;align-items:center;padding:0 24px;gap:16px}
+    .brand{display:flex;align-items:center;gap:9px;text-decoration:none;flex-shrink:0}
+    .brand-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--p5),var(--c5));display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 16px rgba(139,92,246,.4)}
+    .brand-name{font-size:.97rem;font-weight:700;letter-spacing:-.02em}
+    .brand-name b{color:var(--p4)}
+    .nav-sep{width:1px;height:20px;background:var(--border)}
+    .nav-title{font-size:.82rem;color:var(--txt3);font-weight:500}
+    .nav-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+    .nav-link{padding:5px 12px;border-radius:7px;font-size:.8rem;font-weight:600;color:var(--txt2);text-decoration:none;border:1px solid transparent;transition:var(--tr)}
+    .nav-link:hover{background:var(--surf);border-color:var(--border);color:var(--txt)}
+    .nav-link.cta{background:linear-gradient(135deg,var(--p6),var(--c5));color:#fff;border:none;box-shadow:0 0 14px rgba(139,92,246,.3)}
+    .nav-link.cta:hover{box-shadow:0 0 24px rgba(139,92,246,.5)}
+    .ham-btn{display:none;background:none;border:none;cursor:pointer;color:var(--txt);font-size:1.3rem;padding:4px}
+
+    /* LAYOUT */
+    .body-layout{display:flex;flex:1}
+
+    /* SIDEBAR */
+    .sidebar{width:var(--sidebar);flex-shrink:0;position:sticky;top:60px;height:calc(100vh - 60px);overflow-y:auto;padding:20px 0 40px;border-right:1px solid var(--border);background:rgba(5,5,17,.5);backdrop-filter:blur(20px)}
+    .sb-section{padding:0 14px;margin-bottom:4px}
+    .sb-label{font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px;display:block}
+    .sb-link{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font-size:.82rem;color:var(--txt2);text-decoration:none;transition:var(--tr);margin-bottom:1px;border:1px solid transparent}
+    .sb-link:hover{background:var(--surf2);color:var(--txt);border-color:var(--border)}
+    .sb-link.active{background:rgba(139,92,246,.14);color:var(--p4);border-color:rgba(139,92,246,.25)}
+    .sb-icon{font-size:.88rem;flex-shrink:0}
+    .sb-divider{height:1px;background:var(--border);margin:8px 14px}
+    .sb-pts{margin-left:auto;font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:4px}
+    .pts-1{background:rgba(139,92,246,.2);color:var(--p4)}
+    .pts-2{background:rgba(34,211,238,.15);color:var(--c4)}
+    .pts-3{background:rgba(248,113,113,.15);color:var(--r4)}
+    .pts-4{background:rgba(74,222,128,.15);color:var(--g4)}
+
+    /* MAIN */
+    .main-content{flex:1;min-width:0;padding:40px 48px 80px;max-width:900px}
+
+    /* HERO BANNER */
+    .doc-hero{padding:38px;border-radius:20px;margin-bottom:48px;background:linear-gradient(135deg,rgba(139,92,246,.1),rgba(6,182,212,.06));border:1px solid rgba(139,92,246,.2)}
+    .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.28);font-size:.7rem;font-weight:700;color:var(--p4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
+    .doc-hero h1{font-size:clamp(1.8rem,3.5vw,2.6rem);font-weight:900;letter-spacing:-.04em;margin-bottom:12px;line-height:1.08}
+    .grad{background:linear-gradient(135deg,var(--p4) 0%,var(--c4) 55%,var(--pk4) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+    .doc-hero p{color:var(--txt2);font-size:.92rem;max-width:600px;line-height:1.72}
+    .hero-stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:22px}
+    .hstat{padding:10px 18px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid var(--border);text-align:center}
+    .hstat-n{font-size:1.25rem;font-weight:800;background:linear-gradient(135deg,var(--p4),var(--c4));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+    .hstat-l{font-size:.67rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+
+    /* SECTION */
+    .doc-section{margin-bottom:64px;scroll-margin-top:80px}
+    .sec-hdr{display:flex;align-items:flex-start;gap:14px;margin-bottom:28px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+    .sec-num{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:800;flex-shrink:0}
+    .sn1{background:rgba(139,92,246,.18);color:var(--p4);border:1px solid rgba(139,92,246,.3)}
+    .sn2{background:rgba(34,211,238,.15);color:var(--c4);border:1px solid rgba(34,211,238,.28)}
+    .sn3{background:rgba(248,113,113,.15);color:var(--r4);border:1px solid rgba(248,113,113,.25)}
+    .sn4{background:rgba(74,222,128,.15);color:var(--g4);border:1px solid rgba(74,222,128,.25)}
+    .sec-hdr-txt h2{font-size:1.45rem;font-weight:800;letter-spacing:-.03em;margin-bottom:4px}
+    .sec-hdr-txt p{font-size:.85rem;color:var(--txt2)}
+    .marks-pill{margin-left:auto;flex-shrink:0;padding:4px 12px;border-radius:100px;font-size:.72rem;font-weight:700}
+    .mp1{background:rgba(139,92,246,.14);color:var(--p4);border:1px solid rgba(139,92,246,.25)}
+    .mp2{background:rgba(34,211,238,.1);color:var(--c4);border:1px solid rgba(34,211,238,.2)}
+    .mp3{background:rgba(248,113,113,.1);color:var(--r4);border:1px solid rgba(248,113,113,.2)}
+    .mp4{background:rgba(74,222,128,.1);color:var(--g4);border:1px solid rgba(74,222,128,.2)}
+    h3{font-size:1.02rem;font-weight:700;margin:22px 0 10px;letter-spacing:-.02em}
+    h4{font-size:.9rem;font-weight:700;margin:14px 0 7px;color:var(--txt2)}
+    p{font-size:.88rem;color:var(--txt2);line-height:1.75;margin-bottom:10px}
+    code{font-family:var(--mono);font-size:.82em;color:var(--c4);background:rgba(34,211,238,.1);padding:1px 5px;border-radius:4px}
+
+    /* DIAGRAM */
+    .arch-img{width:100%;border-radius:var(--r);border:1px solid var(--border);margin:18px 0;box-shadow:0 16px 60px rgba(0,0,0,.4)}
+    .arch-ascii{background:rgba(0,0,0,.5);border:1px solid var(--border);border-radius:var(--rs);padding:22px 18px;font-family:var(--mono);font-size:.74rem;line-height:1.75;color:#e2e8f0;overflow-x:auto;white-space:pre;margin:14px 0}
+    .ac{color:#64748b}.ab{color:var(--p4)}.aa{color:var(--c4)}.al{color:var(--g4)}
+
+    /* COMPONENT CARDS */
+    .comp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:14px 0}
+    .comp-card{padding:18px;border-radius:var(--r);background:var(--surf);border:1px solid var(--border);transition:var(--tr)}
+    .comp-card:hover{background:var(--surf2);border-color:rgba(139,92,246,.2);transform:translateY(-2px)}
+    .comp-icon{font-size:1.35rem;margin-bottom:7px}
+    .comp-name{font-size:.88rem;font-weight:700;margin-bottom:3px}
+    .comp-desc{font-size:.78rem;color:var(--txt2);line-height:1.6}
+    .comp-tag{display:inline-block;margin-top:7px;font-size:.67rem;font-weight:600;padding:2px 8px;border-radius:5px;background:rgba(139,92,246,.12);color:var(--p4)}
+
+    /* FLOW STEPS */
+    .flow-steps{display:flex;flex-direction:column;gap:2px;margin:14px 0}
+    .flow-step{display:flex;align-items:flex-start;gap:11px;padding:9px 13px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05)}
+    .flow-num{width:21px;height:21px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.66rem;font-weight:800;flex-shrink:0}
+    .fn-p{background:rgba(139,92,246,.2);color:var(--p4)}
+    .fn-c{background:rgba(34,211,238,.2);color:var(--c4)}
+    .fn-g{background:rgba(74,222,128,.2);color:var(--g4)}
+    .flow-text{font-size:.82rem;color:var(--txt2);line-height:1.5;padding-top:3px}
+    .flow-text strong{color:var(--txt)}
+    .flow-conn{width:1px;height:12px;background:var(--border);margin-left:21px}
+
+    /* TABLE */
+    .table-wrap{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin:14px 0}
+    .dtable{width:100%;border-collapse:collapse}
+    .dtable th{text-align:left;padding:10px 14px;background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);font-size:.69rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.08em}
+    .dtable td{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);font-size:.82rem;color:var(--txt2)}
+    .dtable tr:last-child td{border-bottom:none}
+    .dtable tr:hover td{background:rgba(255,255,255,.025)}
+    .mono{font-family:var(--mono);font-size:.78rem;color:var(--c4)}
+    .tg{color:var(--g4);font-weight:600}.ty{color:var(--y4);font-weight:600}.tp{color:var(--p4);font-weight:600}.tr4{color:var(--r4);font-weight:600}
+
+    /* TDR */
+    .tdr-list{display:flex;flex-direction:column;gap:12px;margin:14px 0}
+    .tdr-card{border-radius:var(--r);border:1px solid var(--border);overflow:hidden;background:rgba(255,255,255,.02)}
+    .tdr-hdr{display:flex;align-items:center;gap:11px;padding:13px 16px;cursor:pointer;background:rgba(255,255,255,.025);transition:var(--tr);user-select:none}
+    .tdr-hdr:hover{background:rgba(255,255,255,.04)}
+    .tdr-num{font-family:var(--mono);font-size:.68rem;font-weight:700;color:var(--txt3);flex-shrink:0}
+    .tdr-tech{font-size:.9rem;font-weight:700;flex:1}
+    .tdr-chosen{font-size:.76rem;color:var(--g4);font-weight:600}
+    .tdr-chev{color:var(--txt3);transition:transform var(--tr);font-size:.78rem}
+    .tdr-card.open .tdr-chev{transform:rotate(180deg)}
+    .tdr-body{display:none;padding:16px;border-top:1px solid var(--border)}
+    .tdr-card.open .tdr-body{display:block}
+    .tdr-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .tdr-col-lbl{font-size:.67rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+    .tdr-col{font-size:.82rem;color:var(--txt2);line-height:1.6}
+    .tdr-col.ch{color:var(--g4)}.tdr-col.rj{color:var(--r4)}
+    .rlist{list-style:none}
+    .rlist li{padding:3px 0 3px 13px;position:relative;font-size:.8rem;color:var(--txt2)}
+    .rlist li::before{content:'→';position:absolute;left:0;color:var(--c4)}
+
+    /* FAILURE CARDS */
+    .fail-list{display:flex;flex-direction:column;gap:16px;margin:14px 0}
+    .fail-card{border-radius:var(--r);border:1px solid;padding:20px}
+    .fc-crit{border-color:rgba(248,113,113,.25);background:rgba(248,113,113,.04)}
+    .fc-high{border-color:rgba(250,204,21,.2);background:rgba(250,204,21,.03)}
+    .fail-hdr{display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap}
+    .fail-badge{padding:3px 10px;border-radius:100px;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+    .fb-crit{background:rgba(248,113,113,.2);color:var(--r4);border:1px solid rgba(248,113,113,.3)}
+    .fb-high{background:rgba(250,204,21,.15);color:var(--y4);border:1px solid rgba(250,204,21,.25)}
+    .fail-title{font-size:.95rem;font-weight:700}
+    .risk-score{margin-left:auto;font-family:var(--mono);font-size:.78rem;font-weight:700}
+    .rs-c{color:var(--r4)}.rs-h{color:var(--y4)}
+    .fail-body{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .fail-col-lbl{font-size:.66rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:7px}
+    .fail-item{display:flex;align-items:flex-start;gap:6px;font-size:.8rem;color:var(--txt2);margin-bottom:4px}
+    .fail-item::before{content:'▸';color:var(--r4);flex-shrink:0;margin-top:1px}
+    .mitig-item{display:flex;align-items:flex-start;gap:6px;font-size:.8rem;color:var(--txt2);margin-bottom:4px}
+    .mitig-item::before{content:'✓';color:var(--g4);font-weight:700;flex-shrink:0;margin-top:1px}
+    .rec-flow{background:rgba(0,0,0,.45);border:1px solid var(--border);border-radius:8px;padding:13px 15px;font-family:var(--mono);font-size:.73rem;line-height:1.8;color:#e2e8f0;margin-top:13px;white-space:pre;overflow-x:auto}
+
+    /* OBSERVABILITY */
+    .obs-stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:11px;margin:14px 0}
+    .obs-card{padding:16px;border-radius:var(--r);background:var(--surf);border:1px solid var(--border);text-align:center;transition:var(--tr)}
+    .obs-card:hover{background:var(--surf2);border-color:rgba(74,222,128,.2);transform:translateY(-2px)}
+    .obs-icon{font-size:1.7rem;margin-bottom:7px}
+    .obs-name{font-size:.86rem;font-weight:700;margin-bottom:3px}
+    .obs-role{font-size:.73rem;color:var(--txt3)}
+
+    /* ALERTS */
+    .alert-list{display:flex;flex-direction:column;gap:6px;margin:11px 0}
+    .alert-item{display:flex;align-items:center;gap:10px;padding:9px 13px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05)}
+    .alert-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+    .ad-crit{background:var(--r4);box-shadow:0 0 5px var(--r4)}
+    .ad-high{background:var(--y4);box-shadow:0 0 5px var(--y4)}
+    .ad-med{background:var(--p4);box-shadow:0 0 5px var(--p4)}
+    .ad-low{background:var(--g4)}
+    .alert-cond{font-size:.8rem;font-family:var(--mono);color:var(--txt);flex:1}
+    .alert-ch{font-size:.7rem;color:var(--txt3)}
+
+    /* ROLLBACK */
+    .rb-steps{display:flex;flex-direction:column;gap:0;margin:14px 0}
+    .rb-step{display:flex;gap:13px;position:relative}
+    .rb-step:not(:last-child)::before{content:'';position:absolute;left:15px;top:32px;bottom:0;width:2px;background:var(--border);z-index:0}
+    .rb-dot{width:31px;height:31px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.74rem;font-weight:800;flex-shrink:0;position:relative;z-index:1}
+    .rb-content{flex:1;padding-bottom:20px}
+    .rb-title{font-size:.87rem;font-weight:700;margin-bottom:4px}
+    .rb-desc{font-size:.79rem;color:var(--txt2);line-height:1.6}
+    .rb-code{background:rgba(0,0,0,.5);border:1px solid var(--border);border-radius:7px;padding:10px 13px;font-family:var(--mono);font-size:.72rem;color:var(--g4);margin-top:7px;line-height:1.7}
+
+    /* SLA */
+    .sla-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+    .sla-card{padding:15px;border-radius:var(--rs);background:var(--surf);border:1px solid var(--border);text-align:center}
+    .sla-val{font-size:1.25rem;font-weight:800;margin-bottom:2px}
+    .sla-metric{font-size:.69rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+    .sla-alert{font-size:.68rem;color:var(--r4)}
+
+    /* DOWNLOAD BAR */
+    .dl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:13px 16px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:var(--r);margin:28px 0}
+    .dl-lbl{font-size:.7rem;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em}
+    .dl-sep{width:1px;height:15px;background:var(--border)}
+    .dl-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:7px;font-size:.78rem;font-weight:600;cursor:pointer;border:none;font-family:var(--font);transition:var(--tr);text-decoration:none;white-space:nowrap}
+    .dl-a{background:rgba(139,92,246,.14);color:var(--p4);border:1px solid rgba(139,92,246,.25)}
+    .dl-a:hover{background:rgba(139,92,246,.24)}
+    .dl-t{background:rgba(34,211,238,.12);color:var(--c4);border:1px solid rgba(34,211,238,.22)}
+    .dl-t:hover{background:rgba(34,211,238,.22)}
+    .dl-f{background:rgba(248,113,113,.1);color:var(--r4);border:1px solid rgba(248,113,113,.2)}
+    .dl-f:hover{background:rgba(248,113,113,.18)}
+    .dl-o{background:rgba(74,222,128,.1);color:var(--g4);border:1px solid rgba(74,222,128,.2)}
+    .dl-o:hover{background:rgba(74,222,128,.18)}
+
+    /* FOOTER */
+    footer{border-top:1px solid var(--border);padding:26px 48px;background:rgba(5,5,17,.5);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+    .foot-l{font-size:.8rem;color:var(--txt3)}
+    .foot-l a{color:var(--p4);text-decoration:none;font-weight:600}
+    .foot-links{display:flex;gap:16px}
+    .foot-link{font-size:.8rem;color:var(--txt3);text-decoration:none;transition:var(--tr)}
+    .foot-link:hover{color:var(--p4)}
+
+    /* RESPONSIVE */
+    @media(max-width:900px){
+      .sidebar{display:none}.sidebar.open{display:block;position:fixed;top:60px;left:0;height:calc(100vh - 60px);z-index:250}
+      .main-content{padding:24px 18px 60px}.ham-btn{display:block}
+      .tdr-row,.fail-body{grid-template-columns:1fr}
+      footer{padding:18px;flex-direction:column;align-items:flex-start}
+    }
+    @media(max-width:560px){.sla-grid{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<div id="bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+<div class="grid"></div>
+<div class="wrap">
+
+  <!-- NAV -->
+  <nav class="topnav">
+    <a href="/" class="brand"><div class="brand-icon">⚡</div><span class="brand-name">Page<b>Pulse</b></span></a>
+    <div class="nav-sep"></div>
+    <span class="nav-title">System Design &amp; Architecture</span>
+    <div class="nav-right">
+      <a href="/" class="nav-link">🏠 Home</a>
+      <a href="/docs" class="nav-link">📖 API Docs</a>
+      <a href="/health" class="nav-link" target="_blank">💓 Health</a>
+      <a href="/" class="nav-link cta">⚡ Try API</a>
+      <button class="ham-btn" onclick="document.getElementById('sb').classList.toggle('open')" aria-label="Menu">☰</button>
+    </div>
+  </nav>
+
+  <div class="body-layout">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sb">
+      <div class="sb-section">
+        <span class="sb-label">Overview</span>
+        <a href="#hero" class="sb-link active" data-s="hero"><span class="sb-icon">🏗</span> Introduction</a>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-section">
+        <span class="sb-label">Deliverables</span>
+        <a href="#d1" class="sb-link" data-s="d1"><span class="sb-icon">🏛</span> D1 — Architecture <span class="sb-pts pts-1">30</span></a>
+        <a href="#d2" class="sb-link" data-s="d2"><span class="sb-icon">⚖️</span> D2 — Tech Decisions <span class="sb-pts pts-2">25</span></a>
+        <a href="#d3" class="sb-link" data-s="d3"><span class="sb-icon">🔥</span> D3 — Failure Analysis <span class="sb-pts pts-3">25</span></a>
+        <a href="#d4" class="sb-link" data-s="d4"><span class="sb-icon">📊</span> D4 — Observability <span class="sb-pts pts-4">20</span></a>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-section">
+        <span class="sb-label">Architecture</span>
+        <a href="#arch-diagram" class="sb-link"><span class="sb-icon">🖼</span> Diagram</a>
+        <a href="#arch-comp" class="sb-link"><span class="sb-icon">🧩</span> Components</a>
+        <a href="#arch-flow" class="sb-link"><span class="sb-icon">🔀</span> Data Flow</a>
+        <a href="#arch-state" class="sb-link"><span class="sb-icon">🗄</span> State Mgmt</a>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-section">
+        <span class="sb-label">Downloads</span>
+        <a href="/docs/architecture.md" class="sb-link" download><span class="sb-icon">⬇</span> architecture.md</a>
+        <a href="/docs/technology-decisions.md" class="sb-link" download><span class="sb-icon">⬇</span> technology-decisions.md</a>
+        <a href="/docs/failure-analysis.md" class="sb-link" download><span class="sb-icon">⬇</span> failure-analysis.md</a>
+        <a href="/docs/observability.md" class="sb-link" download><span class="sb-icon">⬇</span> observability.md</a>
+        <a href="/docs/architecture-diagram.png" class="sb-link" download><span class="sb-icon">🖼</span> diagram.png</a>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+      <!-- HERO -->
+      <div class="doc-hero" id="hero">
+        <div class="hero-badge"><span style="color:var(--g4)">●</span> Task B — System Design</div>
+        <h1>Production-Scale<br><span class="grad">Architecture</span></h1>
+        <p>Complete system design documentation for Page Pulse handling <strong style="color:var(--txt)">10,000 audits/day</strong> and <strong style="color:var(--txt)">500 concurrent requests</strong> — architecture, technology decisions, failure analysis, and full observability strategy.</p>
+        <div class="hero-stats">
+          <div class="hstat"><div class="hstat-n">10k</div><div class="hstat-l">Audits/Day</div></div>
+          <div class="hstat"><div class="hstat-n">500</div><div class="hstat-l">Concurrent</div></div>
+          <div class="hstat"><div class="hstat-n">99.9%</div><div class="hstat-l">SLA Target</div></div>
+          <div class="hstat"><div class="hstat-n">4</div><div class="hstat-l">Deliverables</div></div>
+          <div class="hstat"><div class="hstat-n">100</div><div class="hstat-l">Total Marks</div></div>
+        </div>
+      </div>
+
+      <!-- D1: ARCHITECTURE -->
+      <section class="doc-section" id="d1">
+        <div class="sec-hdr">
+          <div class="sec-num sn1">D1</div>
+          <div class="sec-hdr-txt">
+            <h2 style="color:var(--p4)">Architecture Document</h2>
+            <p>System components, data flow, queueing strategy &amp; state management at scale</p>
+          </div>
+          <div class="marks-pill mp1">30 Marks</div>
+        </div>
+
+        <h3 id="arch-diagram">System Architecture Diagram</h3>
+        <img src="/docs/architecture-diagram.png" alt="Page Pulse Architecture Diagram" class="arch-img"
+             onerror="this.style.display='none';document.getElementById('ascii-fb').style.display='block'" />
+        <div class="arch-ascii" id="ascii-fb" style="display:none"><span class="ac">          ┌──────────────────────────────────────────────────────┐</span>
+<span class="ac">          │           500 Concurrent Users / Clients            │</span>
+<span class="ac">          └────────────────────────┬─────────────────────────┘</span>
+                                   <span class="aa">│</span>
+                                   <span class="aa">▼</span>
+                   <span class="ab">┌──────────────────────────────────┐</span>
+                   <span class="ab">│    Load Balancer (Nginx / ALB)   │</span>
+                   <span class="ab">│  Round Robin · SSL Termination   │</span>
+                   <span class="ab">└────────┬───────────────┬──────────┘</span>
+                            <span class="aa">│</span>               <span class="aa">│</span>
+              <span class="aa">┌────────────┘</span>               <span class="aa">└─────────────┐</span>
+              <span class="aa">▼</span>                                           <span class="aa">▼</span>
+  <span class="ab">┌─────────────────────┐</span>               <span class="ab">┌─────────────────────┐</span>
+  <span class="ab">│   API Server 1      │</span>               <span class="ab">│   API Server 2      │</span>
+  <span class="ab">│   Node.js · Express │</span>               <span class="ab">│   Node.js · Express │</span>
+  <span class="ab">│   p-limit: 50       │</span>               <span class="ab">│   p-limit: 50       │</span>
+  <span class="ab">└────────┬────────────┘</span>               <span class="ab">└────────────┬────────┘</span>
+           <span class="aa">└───────────────────────┬────────────────────┘</span>
+                                   <span class="aa">│</span>
+                                   <span class="aa">▼</span>
+                   <span class="ab">┌──────────────────────────────────┐</span>
+                   <span class="ab">│          Redis Cache             │</span>
+                   <span class="ab">│   Cache-Aside · TTL = 5 min      │</span>
+                   <span class="ab">└───────────────┬──────────────────┘</span>
+                                   <span class="aa">│</span>
+              <span class="aa">┌────────────────────┴─────────────────────┐</span>
+              <span class="aa">▼</span>                                         <span class="aa">▼</span>
+       <span class="al">Cache HIT                               Cache MISS</span>
+              <span class="aa">│</span>                                         <span class="aa">│</span>
+              <span class="aa">▼</span>                                         <span class="aa">▼</span>
+     <span class="al">Return Result (&lt;5ms)</span>              <span class="ab">┌──────────────────────┐</span>
+                                       <span class="ab">│  BullMQ Job Queue    │</span>
+                                       <span class="ab">│  Redis-backed · Retry│</span>
+                                       <span class="ab">└──────────┬───────────┘</span>
+                                                  <span class="aa">│</span>
+                        <span class="aa">┌──────────────────────┼─────────────────────┐</span>
+                        <span class="aa">▼</span>                     <span class="aa">▼</span>                     <span class="aa">▼</span>
+              <span class="ab">┌──────────────┐</span>     <span class="ab">┌──────────────┐</span>     <span class="ab">┌──────────────┐</span>
+              <span class="ab">│  Worker 1    │</span>     <span class="ab">│  Worker 2    │</span>     <span class="ab">│  Worker N    │</span>
+              <span class="ab">└──────┬───────┘</span>     <span class="ab">└──────┬───────┘</span>     <span class="ab">└──────┬───────┘</span>
+                     <span class="aa">└────────────────────┬┴──────────────────┘</span>
+                                          <span class="aa">│</span>
+                                <span class="al">External Website Fetch</span>
+                                          <span class="aa">│</span>
+                      <span class="aa">┌─────────────────────┴──────────────────────┐</span>
+                      <span class="aa">▼</span>                                           <span class="aa">▼</span>
+         <span class="ab">┌────────────────────────┐</span>        <span class="ab">┌────────────────────────┐</span>
+         <span class="ab">│  Redis (update cache)  │</span>        <span class="ab">│ PostgreSQL (history)   │</span>
+         <span class="ab">└────────────────────────┘</span>        <span class="ab">│ Primary + Read Replica │</span>
+                                           <span class="ab">└────────────────────────┘</span></div>
+
+        <h3 id="arch-comp">System Components</h3>
+        <div class="comp-grid">
+          <div class="comp-card"><div class="comp-icon">🔀</div><div class="comp-name">Load Balancer</div><div class="comp-desc">Nginx distributes 500 concurrent users across API servers using Round Robin. Handles SSL termination and edge-level rate limiting.</div><div class="comp-tag">Nginx / AWS ALB</div></div>
+          <div class="comp-card"><div class="comp-icon">⚡</div><div class="comp-name">API Servers</div><div class="comp-desc">Stateless Node.js + Express containers. Validate URLs, check Redis cache, and enqueue jobs to BullMQ. Scale horizontally with no config changes.</div><div class="comp-tag">Node.js · Docker</div></div>
+          <div class="comp-card"><div class="comp-icon">🔴</div><div class="comp-name">Redis Cache</div><div class="comp-desc">Shared cache-aside store with 5-min TTL across all API servers — eliminates per-process cache fragmentation of current NodeCache setup.</div><div class="comp-tag">Redis 7 · Sentinel</div></div>
+          <div class="comp-card"><div class="comp-icon">📋</div><div class="comp-name">BullMQ Queue</div><div class="comp-desc">Redis-backed job queue decouples HTTP layer from expensive fetches. Supports retries (3x), exponential backoff, and dead-letter queue.</div><div class="comp-tag">BullMQ · Priority</div></div>
+          <div class="comp-card"><div class="comp-icon">🔧</div><div class="comp-name">Worker Processes</div><div class="comp-desc">Pull audit jobs from BullMQ, fetch external websites, parse HTML, and save results to Redis + PostgreSQL. Scale independently from API servers.</div><div class="comp-tag">Worker Threads</div></div>
+          <div class="comp-card"><div class="comp-icon">🗄</div><div class="comp-name">PostgreSQL</div><div class="comp-desc">Audit history, analytics and logs. Primary + Read Replica with PgBouncer connection pooling. JSONB columns for flexible audit data.</div><div class="comp-tag">PostgreSQL 16</div></div>
+        </div>
+
+        <h3 id="arch-flow">Data Flow — Two Paths</h3>
+        <h4>⚡ Cache Hit Path (most requests after warmup)</h4>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="flow-num fn-c">1</div><div class="flow-text"><strong>Client</strong> sends POST /audit with URL to audit</div></div>
+          <div class="flow-conn"></div>
+          <div class="flow-step"><div class="flow-num fn-c">2</div><div class="flow-text"><strong>Load Balancer</strong> routes to least-loaded API server</div></div>
+          <div class="flow-conn"></div>
+          <div class="flow-step"><div class="flow-num fn-c">3</div><div class="flow-text"><strong>API Server</strong> validates URL with Zod, generates Request ID</div></div>
+          <div class="flow-conn"></div>
+          <div class="flow-step"><div class="flow-num fn-g">4</div><div class="flow-text"><strong>Redis</strong> → Cache HIT → Returns cached result immediately <code>&lt;5ms</code></div></div>
+        </div>
+        <h4>🔄 Cache Miss Path (first request for a URL)</h4>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="flow-num fn-c">1</div><div class="flow-text"><strong>API Server</strong> checks Redis → MISS → enqueues job in BullMQ, returns <code>202 + jobId</code></div></div>
+          <div class="flow-conn"></div>
+          <div class="flow-step"><div class="flow-num fn-c">2</div><div class="flow-text"><strong>Worker</strong> picks job → fetches external website (5s timeout) → parses HTML</div></div>
+          <div class="flow-conn"></div>
+          <div class="flow-step"><div class="flow-num fn-g">3</div><div class="flow-text"><strong>Redis + PostgreSQL</strong> updated. Client polls <code>GET /audit/status/:jobId</code> → gets result</div></div>
+        </div>
+
+        <h3 id="arch-state">State Management</h3>
+        <div class="table-wrap">
+          <table class="dtable">
+            <thead><tr><th>Data</th><th>Storage</th><th>TTL</th><th>Reason</th></tr></thead>
+            <tbody>
+              <tr><td>Audit cache</td><td class="mono">Redis</td><td class="tg">5 min</td><td>Fast shared reads across all servers</td></tr>
+              <tr><td>Job queue</td><td class="mono">Redis (BullMQ)</td><td class="tp">Until processed</td><td>Reliable job delivery with retries</td></tr>
+              <tr><td>Audit history</td><td class="mono">PostgreSQL</td><td class="ty">Permanent</td><td>Analytics, compliance, SLA reporting</td></tr>
+              <tr><td>Rate limit counters</td><td class="mono">Redis</td><td class="tg">1 min window</td><td>Shared across all API server instances</td></tr>
+              <tr><td>Session / Auth tokens</td><td class="mono">Redis</td><td class="tg">Configurable</td><td>Fast auth lookup, shared state</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- D2: TECHNOLOGY DECISIONS -->
+      <section class="doc-section" id="d2">
+        <div class="sec-hdr">
+          <div class="sec-num sn2">D2</div>
+          <div class="sec-hdr-txt">
+            <h2 style="color:var(--c4)">Technology Decision Record</h2>
+            <p>Why each tech was chosen, alternatives considered, and why they were rejected</p>
+          </div>
+          <div class="marks-pill mp2">25 Marks</div>
+        </div>
+        <p>Click any card to expand the full decision rationale.</p>
+        <div class="tdr-list">
+
+          <div class="tdr-card open">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-01</span><span class="tdr-tech">Runtime — Node.js 20 LTS</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>Non-blocking I/O — ideal for URL fetching (I/O-bound)</li><li>Event loop handles thousands of concurrent connections</li><li>Same language (TypeScript) frontend + backend</li><li>Vast ecosystem: axios, BullMQ, Pino, Zod</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternative Rejected</div>
+                  <div class="tdr-col rj">Python (FastAPI)</div>
+                  <div class="tdr-col-lbl" style="margin-top:8px">Why Rejected</div>
+                  <ul class="rlist"><li>GIL limits true concurrency in CPU-bound workers</li><li>Slower Docker cold start</li><li>Two languages in one project</li></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tdr-card">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-02</span><span class="tdr-tech">Web Framework — Express.js</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>Minimal, un-opinionated — full control over middleware</li><li>Fastest startup time among Node.js frameworks</li><li>Battle-tested in production since 2009</li><li>Easiest to containerize horizontally</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternatives Rejected</div>
+                  <div class="tdr-col rj">NestJS — Too complex (DI, decorators, modules) for a single-feature API</div>
+                  <div class="tdr-col rj" style="margin-top:8px">Fastify — Smaller ecosystem, less familiar to most devs</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tdr-card">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-03</span><span class="tdr-tech">Caching — Redis 7</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>Sub-millisecond latency (&lt;1ms reads)</li><li><strong>Shared</strong> across all server instances</li><li>Native TTL per key — perfect for cache expiry</li><li>Also powers BullMQ — dual-purpose infrastructure</li><li>Redis Sentinel for high availability</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternatives Rejected</div>
+                  <div class="tdr-col rj">NodeCache (in-memory) — Not shared between servers; lost on restart</div>
+                  <div class="tdr-col rj" style="margin-top:8px">Memcached — No persistence; can't run BullMQ on top of it</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tdr-card">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-04</span><span class="tdr-tech">Job Queue — BullMQ</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>Uses existing Redis — no new infrastructure needed</li><li>Built-in retries, backoff, DLQ, priority queues</li><li>TypeScript-native, full type support</li><li>Bull Board dashboard for real-time queue monitoring</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternatives Rejected</div>
+                  <div class="tdr-col rj">RabbitMQ — Extra AMQP broker; overkill for 10k/day scale</div>
+                  <div class="tdr-col rj" style="margin-top:8px">AWS SQS — Vendor lock-in, extra latency, cost</div>
+                  <div class="tdr-col rj" style="margin-top:8px">Kafka — Designed for millions/sec; extreme overkill here</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tdr-card">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-05</span><span class="tdr-tech">Database — PostgreSQL 16</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>ACID-compliant — audit results reliably stored</li><li>JSONB column for flexible audit data + indexing</li><li>Read Replica for analytics without primary load</li><li>PgBouncer for connection pooling</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternatives Rejected</div>
+                  <div class="tdr-col rj">MongoDB — Schema flexibility not needed; fixed audit shape</div>
+                  <div class="tdr-col rj" style="margin-top:8px">MySQL — Weaker JSONB support, less powerful EXPLAIN tooling</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tdr-card">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-06</span><span class="tdr-tech">Load Balancer — Nginx</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>SSL termination + load balancing in one binary</li><li>~2MB memory footprint — extremely lean</li><li>Built-in rate limiting, gzip, static serving</li><li>Portable across all cloud providers</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternatives Rejected</div>
+                  <div class="tdr-col rj">AWS ALB — Vendor lock-in, cost even when idle, less routing control</div>
+                  <div class="tdr-col rj" style="margin-top:8px">HAProxy — Nginx does everything HAProxy does + more</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tdr-card">
+            <div class="tdr-hdr" onclick="toggleTdr(this)">
+              <span class="tdr-num">TDR-07</span><span class="tdr-tech">Language — TypeScript (strict mode)</span>
+              <span class="tdr-chosen">✓ Chosen</span><span class="tdr-chev">▾</span>
+            </div>
+            <div class="tdr-body">
+              <div class="tdr-row">
+                <div><div class="tdr-col-lbl">Why Chosen</div>
+                  <ul class="rlist"><li>Compile-time type errors — fewer runtime bugs</li><li>Zod v4 schemas auto-generate TypeScript types</li><li>IDE autocomplete speeds development significantly</li><li>Self-documenting — types serve as inline contracts</li></ul>
+                </div>
+                <div><div class="tdr-col-lbl">Alternative Rejected</div>
+                  <div class="tdr-col rj">JavaScript (plain) — No compile-time safety; debugging runtime type errors in production is very costly</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- D3: FAILURE ANALYSIS -->
+      <section class="doc-section" id="d3">
+        <div class="sec-hdr">
+          <div class="sec-num sn3">D3</div>
+          <div class="sec-hdr-txt">
+            <h2 style="color:var(--r4)">Failure Mode Analysis</h2>
+            <p>Top failures, their cascading impact, and concrete mitigations using FMEA methodology</p>
+          </div>
+          <div class="marks-pill mp3">25 Marks</div>
+        </div>
+
+        <div class="fail-list">
+
+          <div class="fail-card fc-crit">
+            <div class="fail-hdr">
+              <span class="fail-badge fb-crit">🔴 Critical</span>
+              <span class="fail-title">Failure 1 — External Website Timeout / Unreachable</span>
+              <span class="risk-score rs-c">Risk: 5×5 = 25</span>
+            </div>
+            <p style="font-size:.83rem;color:var(--txt2);margin-bottom:13px">Most common failure — audited URL doesn't respond. Without protection, workers hang indefinitely, exhausting the thread pool and cascading to total service failure.</p>
+            <div class="fail-body">
+              <div>
+                <div class="fail-col-lbl">Effects Without Mitigation</div>
+                <div class="fail-item">Worker threads hang indefinitely</div>
+                <div class="fail-item">Thread pool exhaustion → service unresponsive</div>
+                <div class="fail-item">Queue backs up → cascading failure</div>
+                <div class="fail-item">All users affected, not just slow URL</div>
+              </div>
+              <div>
+                <div class="fail-col-lbl">Mitigations</div>
+                <div class="mitig-item">5s hard timeout per fetch ✅ <em>Implemented</em></div>
+                <div class="mitig-item">p-limit: max 50 concurrent fetches ✅ <em>Implemented</em></div>
+                <div class="mitig-item">Structured TIMEOUT/UNREACHABLE errors ✅ <em>Implemented</em></div>
+                <div class="mitig-item">Circuit Breaker: stop fetching failing domains 30s</div>
+                <div class="mitig-item">BullMQ retry: 3x exponential backoff (1s, 2s, 4s)</div>
+                <div class="mitig-item">Dead Letter Queue for permanently failed jobs</div>
+              </div>
+            </div>
+            <div class="rec-flow">External website slow/down
+    ↓ 5s timeout fires (axios AbortController)
+    ↓ Return TIMEOUT error immediately to client
+    ↓ BullMQ retry: after 1s → 2s → 4s
+    ↓ All 3 retries fail → job moves to Dead Letter Queue
+    ↓ Alert: "URL unreachable after 3 attempts"</div>
+          </div>
+
+          <div class="fail-card fc-high">
+            <div class="fail-hdr">
+              <span class="fail-badge fb-high">🟡 High</span>
+              <span class="fail-title">Failure 2 — Redis Crash / Unavailability</span>
+              <span class="risk-score rs-h">Risk: 3×5 = 15</span>
+            </div>
+            <p style="font-size:.83rem;color:var(--txt2);margin-bottom:13px">Redis powers both caching AND BullMQ — a dual-risk failure point. A crash means cache goes cold AND no new jobs can be queued.</p>
+            <div class="fail-body">
+              <div>
+                <div class="fail-col-lbl">Effects Without Mitigation</div>
+                <div class="fail-item">Cache gone → 10-100x latency spike on all requests</div>
+                <div class="fail-item">BullMQ broken → audit requests fail entirely</div>
+                <div class="fail-item">Rate limit counters lost → abuse possible</div>
+              </div>
+              <div>
+                <div class="fail-col-lbl">Mitigations</div>
+                <div class="mitig-item">Graceful fallback: direct fetch if cache down ✅ <em>Implemented</em></div>
+                <div class="mitig-item">Redis Sentinel (3-node): auto-failover &lt;30s</div>
+                <div class="mitig-item">AOF persistence: no data loss on crash</div>
+                <div class="mitig-item">Separate Redis: cache vs. queue instances</div>
+                <div class="mitig-item">Health check ping → 503 if Redis unreachable</div>
+                <div class="mitig-item">PagerDuty alert within 30 seconds</div>
+              </div>
+            </div>
+            <div class="rec-flow">Redis Primary OOM crash detected
+    ↓ Sentinel detects failure (within 5 seconds)
+    ↓ Promotes Replica 1 to new Primary automatically
+    ↓ ioredis auto-reconnects all API servers
+    ↓ Cache cold → first requests hit live websites
+    ↓ Cache warms up over ~5 minutes
+    ↓ Full recovery: &lt;2 minutes total downtime</div>
+          </div>
+
+          <div class="fail-card fc-high">
+            <div class="fail-hdr">
+              <span class="fail-badge fb-high">🟡 High</span>
+              <span class="fail-title">Failure 3 — Traffic Spike / Overload (DDoS / Viral)</span>
+              <span class="risk-score rs-h">Risk: 4×4 = 16</span>
+            </div>
+            <p style="font-size:.83rem;color:var(--txt2);margin-bottom:13px">Sudden traffic spike to 500+ concurrent requests. Without protection, OOM kills Node.js process and all users get 503.</p>
+            <div class="fail-body">
+              <div>
+                <div class="fail-col-lbl">Effects Without Mitigation</div>
+                <div class="fail-item">Event loop blocked by too many fetches</div>
+                <div class="fail-item">OOM kill — Node.js process crashes</div>
+                <div class="fail-item">503 errors for ALL users</div>
+                <div class="fail-item">Queue backup of thousands of jobs</div>
+              </div>
+              <div>
+                <div class="fail-col-lbl">Mitigations</div>
+                <div class="mitig-item">Rate limiting: 100 req/min per IP ✅ <em>Implemented</em></div>
+                <div class="mitig-item">p-limit: 50 max concurrent fetches ✅ <em>Implemented</em></div>
+                <div class="mitig-item">503 SERVER_BUSY when overloaded ✅ <em>Implemented</em></div>
+                <div class="mitig-item">Nginx edge rate limit: 500 req/sec global</div>
+                <div class="mitig-item">K8s HPA: CPU &gt; 70% → new API server in &lt;60s</div>
+                <div class="mitig-item">BullMQ buffer: burst queued, processed steadily</div>
+              </div>
+            </div>
+            <div class="rec-flow">Traffic spike: 2000 req/min detected
+    ↓ Nginx: reject requests &gt; 500 req/sec (429)
+    ↓ Rate limiter: 100/min per IP → most bots blocked
+    ↓ Remaining → BullMQ queue (buffered safely)
+    ↓ Auto-scaler: CPU 80% → 2 new servers spin up (&lt;60s)
+    ↓ New servers join load balancer pool
+    ↓ Queue drains, latency normalises
+    ↓ Post-spike: extra servers terminated (cost saved)</div>
+          </div>
+
+        </div>
+
+        <h3>Risk Summary Matrix</h3>
+        <div class="table-wrap">
+          <table class="dtable">
+            <thead><tr><th>Failure</th><th>Likelihood</th><th>Impact</th><th>Risk Score</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>External website timeout</td><td>5/5</td><td>5/5</td><td class="tr4">25 — CRITICAL</td><td class="tg">✅ Mitigated</td></tr>
+              <tr><td>Traffic overload / DDoS</td><td>4/5</td><td>4/5</td><td class="ty">16 — HIGH</td><td class="tg">✅ Mitigated</td></tr>
+              <tr><td>Redis crash</td><td>3/5</td><td>5/5</td><td class="ty">15 — HIGH</td><td class="ty">⚠ Partial</td></tr>
+              <tr><td>Database write failure</td><td>2/5</td><td>4/5</td><td>8 — MEDIUM</td><td class="ty">⚠ Partial</td></tr>
+              <tr><td>Worker process crash</td><td>2/5</td><td>3/5</td><td>6 — MEDIUM</td><td class="tg">✅ BullMQ retry</td></tr>
+              <tr><td>Load balancer failure</td><td>1/5</td><td>5/5</td><td>5 — LOW</td><td class="tg">✅ Health checks</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- D4: OBSERVABILITY -->
+      <section class="doc-section" id="d4">
+        <div class="sec-hdr">
+          <div class="sec-num sn4">D4</div>
+          <div class="sec-hdr-txt">
+            <h2 style="color:var(--g4)">Observability &amp; Rollback Plan</h2>
+            <p>What to monitor, when to alert, and how to roll back a bad deploy in under 5 minutes</p>
+          </div>
+          <div class="marks-pill mp4">20 Marks</div>
+        </div>
+
+        <h3>Observability Stack</h3>
+        <div class="obs-stack">
+          <div class="obs-card"><div class="obs-icon">📊</div><div class="obs-name">Prometheus</div><div class="obs-role">Metrics collection &amp; storage</div></div>
+          <div class="obs-card"><div class="obs-icon">📈</div><div class="obs-name">Grafana</div><div class="obs-role">Dashboards &amp; visualization</div></div>
+          <div class="obs-card"><div class="obs-icon">📝</div><div class="obs-name">Loki + Pino</div><div class="obs-role">Log aggregation &amp; search</div></div>
+          <div class="obs-card"><div class="obs-icon">🔍</div><div class="obs-name">Jaeger / Tempo</div><div class="obs-role">Distributed request tracing</div></div>
+          <div class="obs-card"><div class="obs-icon">🚨</div><div class="obs-name">AlertManager</div><div class="obs-role">Routing alerts to channels</div></div>
+          <div class="obs-card"><div class="obs-icon">📟</div><div class="obs-name">PagerDuty</div><div class="obs-role">On-call incident management</div></div>
+        </div>
+
+        <h3>What to Monitor</h3>
+        <div class="table-wrap">
+          <table class="dtable">
+            <thead><tr><th>Layer</th><th>Metric</th><th>Alert Threshold</th><th>Channel</th></tr></thead>
+            <tbody>
+              <tr><td class="tp">API</td><td>P99 latency</td><td class="mono">&gt; 2000ms for 5 min</td><td>PagerDuty</td></tr>
+              <tr><td class="tp">API</td><td>5xx error rate</td><td class="mono">&gt; 2% of requests</td><td>PagerDuty + Slack</td></tr>
+              <tr><td class="tp">API</td><td>Concurrent requests</td><td class="mono">&gt; 400 (of 500 limit)</td><td>Slack</td></tr>
+              <tr><td style="color:var(--r4);font-weight:600">Redis</td><td>Cache hit ratio</td><td class="mono">&lt; 60% for 10 min</td><td>Slack</td></tr>
+              <tr><td style="color:var(--r4);font-weight:600">Redis</td><td>Unavailability</td><td class="mono">Ping fails &gt; 10s</td><td>PagerDuty</td></tr>
+              <tr><td class="ty">Queue</td><td>BullMQ queue depth</td><td class="mono">&gt; 1000 jobs for 5 min</td><td>PagerDuty + Slack</td></tr>
+              <tr><td class="ty">Queue</td><td>Failed jobs / hour</td><td class="mono">&gt; 50 failures</td><td>Slack</td></tr>
+              <tr><td class="tg">Worker</td><td>Fetch success rate</td><td class="mono">&lt; 80%</td><td>Slack</td></tr>
+              <tr><td class="tg">Worker</td><td>Crash count</td><td class="mono">&gt; 0 in 5 min</td><td>PagerDuty</td></tr>
+              <tr><td>Infra</td><td>CPU per container</td><td class="mono">&gt; 85% for 5 min</td><td>Slack</td></tr>
+              <tr><td>Infra</td><td>Disk usage</td><td class="mono">&gt; 75%</td><td>Email</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Alert Severity Levels</h3>
+        <div class="alert-list">
+          <div class="alert-item"><div class="alert-dot ad-crit"></div><div class="alert-cond">Service down — 503 for &gt; 30 seconds</div><div class="alert-ch">PagerDuty + Slack</div></div>
+          <div class="alert-item"><div class="alert-dot ad-crit"></div><div class="alert-cond">5xx error rate &gt; 5% for 2 minutes</div><div class="alert-ch">PagerDuty + Slack</div></div>
+          <div class="alert-item"><div class="alert-dot ad-crit"></div><div class="alert-cond">Redis unavailable (ping fails &gt; 10s)</div><div class="alert-ch">PagerDuty</div></div>
+          <div class="alert-item"><div class="alert-dot ad-high"></div><div class="alert-cond">BullMQ queue depth &gt; 1000 jobs for 5 min</div><div class="alert-ch">PagerDuty + Slack</div></div>
+          <div class="alert-item"><div class="alert-dot ad-high"></div><div class="alert-cond">P99 API latency &gt; 2000ms for 5 minutes</div><div class="alert-ch">Slack #alerts</div></div>
+          <div class="alert-item"><div class="alert-dot ad-med"></div><div class="alert-cond">Cache hit ratio &lt; 60% for 10 minutes</div><div class="alert-ch">Slack #warnings</div></div>
+          <div class="alert-item"><div class="alert-dot ad-med"></div><div class="alert-cond">&gt; 50 failed jobs per hour</div><div class="alert-ch">Slack #warnings</div></div>
+          <div class="alert-item"><div class="alert-dot ad-low"></div><div class="alert-cond">Disk usage &gt; 75% on any container</div><div class="alert-ch">Email (daily digest)</div></div>
+        </div>
+
+        <h3>Rollback Plan — Blue/Green Deployment</h3>
+        <p>Every deploy uses Blue/Green strategy. If a bug is detected post-deploy, rollback completes in <strong style="color:var(--g4)">&lt; 5 minutes</strong> with zero data loss.</p>
+        <div class="rb-steps">
+          <div class="rb-step">
+            <div class="rb-dot" style="background:rgba(248,113,113,.2);color:var(--r4);border:1px solid rgba(248,113,113,.3)">1</div>
+            <div class="rb-content">
+              <div class="rb-title">🚨 Detect — Automated (within 2 min)</div>
+              <div class="rb-desc">Grafana alert fires: 5xx error rate &gt; 5% post-deploy. PagerDuty incident created automatically. On-call engineer gets SMS + push notification.</div>
+            </div>
+          </div>
+          <div class="rb-step">
+            <div class="rb-dot" style="background:rgba(250,204,21,.15);color:var(--y4);border:1px solid rgba(250,204,21,.25)">2</div>
+            <div class="rb-content">
+              <div class="rb-title">🔍 Triage — Human (1 min)</div>
+              <div class="rb-desc">On-call checks Grafana dashboard, confirms regression is deploy-related (not external), and triggers rollback via Slack command or Render dashboard.</div>
+            </div>
+          </div>
+          <div class="rb-step">
+            <div class="rb-dot" style="background:rgba(34,211,238,.15);color:var(--c4);border:1px solid rgba(34,211,238,.25)">3</div>
+            <div class="rb-content">
+              <div class="rb-title">⚡ Execute Rollback — Automated (&lt; 2 min)</div>
+              <div class="rb-desc">Previous stable Docker image is redeployed. Traffic shifted back to v1.2 while v1.3 is quarantined.</div>
+              <div class="rb-code"># Render.com
+render deploys rollback --service page-pulse --deploy-id &lt;prev-id&gt;
+
+# Kubernetes
+kubectl set image deployment/page-pulse app=page-pulse:v1.2
+kubectl rollout status deployment/page-pulse
+
+# Verify
+curl https://page-pulse.onrender.com/health | jq '.version'
+# Expected output: "1.2.0"</div>
+            </div>
+          </div>
+          <div class="rb-step">
+            <div class="rb-dot" style="background:rgba(74,222,128,.15);color:var(--g4);border:1px solid rgba(74,222,128,.25)">4</div>
+            <div class="rb-content">
+              <div class="rb-title">✅ Verify &amp; Recover</div>
+              <div class="rb-desc">Error rate drops to &lt;1% within 60s of rollback. PostgreSQL and Redis state unaffected — no data loss. Post-mortem scheduled within 24 hours.</div>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin-top:28px">SLA Targets</h3>
+        <div class="sla-grid">
+          <div class="sla-card"><div class="sla-metric">Availability</div><div class="sla-val" style="color:var(--g4)">99.9%</div><div class="sla-alert">Alert if &lt; 99.5%</div></div>
+          <div class="sla-card"><div class="sla-metric">P95 Latency</div><div class="sla-val" style="color:var(--c4)">&lt;500ms</div><div class="sla-alert">Alert if &gt; 1000ms</div></div>
+          <div class="sla-card"><div class="sla-metric">P99 Latency</div><div class="sla-val" style="color:var(--p4)">&lt;2000ms</div><div class="sla-alert">Alert if &gt; 3000ms</div></div>
+          <div class="sla-card"><div class="sla-metric">Cache Hit Rate</div><div class="sla-val" style="color:var(--g4)">&gt;70%</div><div class="sla-alert">Alert if &lt; 60%</div></div>
+          <div class="sla-card"><div class="sla-metric">Success Rate</div><div class="sla-val" style="color:var(--g4)">&gt;95%</div><div class="sla-alert">Alert if &lt; 90%</div></div>
+          <div class="sla-card"><div class="sla-metric">5xx Error Rate</div><div class="sla-val" style="color:var(--g4)">&lt;1%</div><div class="sla-alert">Alert if &gt; 2%</div></div>
+        </div>
+      </section>
+
+      <!-- DOWNLOAD BAR -->
+      <div class="dl-bar">
+        <span class="dl-lbl">📥 Download All Docs</span>
+        <div class="dl-sep"></div>
+        <a href="/docs/architecture.md" class="dl-btn dl-a" download>⬇ Architecture</a>
+        <a href="/docs/technology-decisions.md" class="dl-btn dl-t" download>⬇ Tech Decisions</a>
+        <a href="/docs/failure-analysis.md" class="dl-btn dl-f" download>⬇ Failure Analysis</a>
+        <a href="/docs/observability.md" class="dl-btn dl-o" download>⬇ Observability</a>
+        <a href="/docs/architecture-diagram.png" class="dl-btn" style="background:rgba(250,204,21,.1);color:var(--y4);border:1px solid rgba(250,204,21,.2)" download>🖼 Diagram</a>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="foot-l">⚡ <strong>Page Pulse</strong> · System Design Docs · Built for <a href="https://digitalheroesco.com" target="_blank" rel="noopener">Digital Heroes Training Task</a></div>
+    <div class="foot-links">
+      <a href="/" class="foot-link">Home</a>
+      <a href="/docs" class="foot-link">API Docs</a>
+      <a href="/health" class="foot-link" target="_blank">Health</a>
+    </div>
+  </footer>
+</div>
+
+<script>
+  function toggleTdr(hdr) { hdr.closest('.tdr-card').classList.toggle('open'); }
+
+  // Scroll spy
+  const sbLinks = document.querySelectorAll('.sb-link[data-s]');
+  const secs = ['hero','d1','d2','d3','d4'];
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting)
+        sbLinks.forEach(l => l.classList.toggle('active', l.dataset.s === e.target.id));
+    });
+  }, { threshold: 0.18 });
+  secs.forEach(id => { const el = document.getElementById(id); if(el) io.observe(el); });
+
+  // Close sidebar on mobile nav click
+  document.querySelectorAll('.sidebar .sb-link').forEach(l => {
+    l.addEventListener('click', () => {
+      if (window.innerWidth < 900) document.getElementById('sb').classList.remove('open');
+    });
+  });
+</script>
+</body>
+</html>

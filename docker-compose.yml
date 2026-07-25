@@ -1,0 +1,34 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    container_name: page-pulse-app
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      CACHE_TTL_SECONDS: 300
+      REQUEST_TIMEOUT_MS: 5000
+      RATE_LIMIT_MAX: 100
+      RATE_LIMIT_WINDOW_MS: 60000
+      MAX_CONCURRENT_AUDITS: 50
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Redis for distributed caching (swap NodeCache for Redis client in cacheService.ts)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: page-pulse-redis
+  #   ports:
+  #     - '6379:6379'
+  #   restart: unless-stopped
+  #   command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru

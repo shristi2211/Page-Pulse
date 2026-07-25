@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: page-pulse
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: CACHE_TTL_SECONDS
+        value: 300
+      - key: REQUEST_TIMEOUT_MS
+        value: 5000
+      - key: RATE_LIMIT_MAX
+        value: 100
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: MAX_CONCURRENT_AUDITS
+        value: 50

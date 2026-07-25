@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Page Pulse — URL Audit Service</title>
+  <meta name="description" content="Page Pulse: Production-grade URL Audit Service. Instantly audit any website for status code, response time, title, HTTPS, headers, redirects and more." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #050511;
+      --surface:  rgba(255,255,255,0.04);
+      --surface2: rgba(255,255,255,0.07);
+      --border:   rgba(255,255,255,0.09);
+      --glow:     rgba(139,92,246,0.45);
+      --p4: #a78bfa; --p5: #8b5cf6; --p6: #7c3aed;
+      --c4: #22d3ee; --c5: #06b6d4;
+      --g4: #4ade80; --g5: #22c55e;
+      --r4: #f87171;
+      --y4: #facc15;
+      --pk4: #f472b6;
+      --txt: #f0eeff; --txt2: rgba(240,238,255,0.55); --txt3: rgba(240,238,255,0.3);
+      --font: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+      --r: 14px; --rs: 10px; --tr: 0.22s cubic-bezier(.4,0,.2,1);
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font); background: var(--bg); color: var(--txt); min-height: 100vh; overflow-x: hidden; line-height: 1.6; }
+
+    /* ── Background ─────────────────────────────────────────────── */
+    #bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(110px); opacity: .15; animation: drift 22s ease-in-out infinite alternate; }
+    .o1 { width: 680px; height: 680px; background: var(--p5); top: -200px; left: -200px; }
+    .o2 { width: 480px; height: 480px; background: var(--c4); bottom: -150px; right: -150px; animation-delay: -8s; }
+    .o3 { width: 360px; height: 360px; background: var(--pk4); top: 45%; left: 50%; transform: translate(-50%,-50%); animation-delay: -16s; }
+    @keyframes drift { to { transform: translate(50px,35px) scale(1.1); } }
+    .grid { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: linear-gradient(rgba(139,92,246,.03) 1px, transparent 1px),
+                  linear-gradient(90deg,rgba(139,92,246,.03) 1px, transparent 1px);
+      background-size: 56px 56px; }
+
+    /* ── Scrollbar ──────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(139,92,246,.4); border-radius: 3px; }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .wrap { position: relative; z-index: 1; }
+    .ct { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+    /* ── Nav ────────────────────────────────────────────────────── */
+    nav {
+      padding: 0; height: 64px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(5,5,17,.75);
+      backdrop-filter: blur(24px);
+      position: sticky; top: 0; z-index: 200;
+    }
+    .nav-in { display: flex; align-items: center; justify-content: space-between; height: 100%; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .brand-icon {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--p5), var(--c5));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; box-shadow: 0 0 18px rgba(139,92,246,.4);
+    }
+    .brand-name { font-size: 1.05rem; font-weight: 700; letter-spacing: -.02em; }
+    .brand-name b { color: var(--p4); }
+    .nav-links { display: flex; align-items: center; gap: 4px; }
+    .nl { padding: 6px 13px; border-radius: 7px; font-size: .85rem; font-weight: 500; color: var(--txt2); text-decoration: none; transition: var(--tr); border: 1px solid transparent; }
+    .nl:hover { color: var(--txt); background: var(--surface); border-color: var(--border); }
+    .nl.cta { background: linear-gradient(135deg, var(--p6), var(--c5)); color: #fff; border: none; box-shadow: 0 0 18px rgba(139,92,246,.3); }
+    .nl.cta:hover { box-shadow: 0 0 28px rgba(139,92,246,.5); transform: translateY(-1px); }
+    /* Mobile hamburger */
+    .hamburger { display: none; flex-direction: column; gap: 5px; cursor: pointer; padding: 8px; }
+    .hamburger span { display: block; width: 22px; height: 2px; background: var(--txt2); border-radius: 2px; transition: var(--tr); }
+    .mobile-menu { display: none; flex-direction: column; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: rgba(5,5,17,.95); }
+    .mobile-menu.open { display: flex; }
+    .mobile-menu .nl { width: 100%; text-align: left; }
+
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .hamburger { display: flex; }
+    }
+
+    /* ── Hero ───────────────────────────────────────────────────── */
+    .hero { padding: 90px 0 70px; text-align: center; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 5px 13px; border-radius: 100px; margin-bottom: 26px;
+      background: rgba(139,92,246,.1); border: 1px solid rgba(139,92,246,.3);
+      font-size: .73rem; font-weight: 600; color: var(--p4); letter-spacing: .08em; text-transform: uppercase;
+    }
+    .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--g4); animation: blink 2s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    h1 { font-size: clamp(2.4rem,6vw,4.2rem); font-weight: 900; line-height: 1.06; letter-spacing: -.04em; margin-bottom: 20px; }
+    .grad { background: linear-gradient(135deg, var(--p4) 0%, var(--c4) 55%, var(--pk4) 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero-sub { font-size: clamp(.95rem,2.2vw,1.15rem); color: var(--txt2); max-width: 580px; margin: 0 auto 42px; line-height: 1.75; }
+    .hero-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 7px; padding: 12px 26px; border-radius: var(--rs); font-size: .92rem; font-weight: 600; cursor: pointer; border: none; font-family: var(--font); text-decoration: none; transition: var(--tr); }
+    .btn-pri { background: linear-gradient(135deg, var(--p5), var(--c5)); color: #fff; box-shadow: 0 0 26px rgba(139,92,246,.35); }
+    .btn-pri:hover { transform: translateY(-2px); box-shadow: 0 0 40px rgba(139,92,246,.55); }
+    .btn-sec { background: var(--surface); color: var(--txt2); border: 1px solid var(--border); }
+    .btn-sec:hover { background: var(--surface2); color: var(--txt); border-color: rgba(139,92,246,.35); }
+
+    /* ── Stats Strip ────────────────────────────────────────────── */
+    .stats { display: flex; flex-wrap: wrap; gap: 0; margin: 56px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; backdrop-filter: blur(20px); }
+    .stat { flex: 1; min-width: 130px; padding: 24px 20px; text-align: center; border-right: 1px solid var(--border); transition: var(--tr); }
+    .stat:last-child { border-right: none; }
+    .stat:hover { background: var(--surface2); }
+    .stat-n { font-size: 1.9rem; font-weight: 800; letter-spacing: -.03em; background: linear-gradient(135deg, var(--p4), var(--c4)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-l { font-size: .72rem; color: var(--txt3); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; margin-top: 3px; }
+    @media (max-width: 600px) { .stat { border-right: none; border-bottom: 1px solid var(--border); } .stat:last-child { border-bottom: none; } }
+
+    /* ── Section Head ───────────────────────────────────────────── */
+    .sec-head { text-align: center; margin-bottom: 44px; }
+    .sec-head h2 { font-size: clamp(1.5rem,3.5vw,2.3rem); font-weight: 800; letter-spacing: -.03em; margin-bottom: 10px; }
+    .sec-head p { color: var(--txt2); font-size: .95rem; }
+
+    /* ── Audit Tool ─────────────────────────────────────────────── */
+    #audit-tool { padding: 70px 0 60px; }
+    .audit-card {
+      max-width: 720px; margin: 0 auto;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border);
+      border-radius: 20px; padding: 32px;
+      backdrop-filter: blur(28px);
+      box-shadow: 0 24px 80px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+      transition: border-color var(--tr);
+    }
+    .audit-card:focus-within { border-color: rgba(139,92,246,.35); }
+
+    /* Input */
+    .input-wrap { display: flex; gap: 10px; margin-bottom: 14px; }
+    .url-field { flex: 1; position: relative; }
+    .url-field-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 1rem; pointer-events: none; }
+    #url-input {
+      width: 100%; padding: 14px 14px 14px 42px;
+      background: rgba(255,255,255,.055); border: 1.5px solid var(--border);
+      border-radius: var(--rs); color: var(--txt); font-size: .93rem; font-family: var(--font);
+      transition: var(--tr); outline: none;
+    }
+    #url-input::placeholder { color: var(--txt3); }
+    #url-input:focus { border-color: var(--p5); background: rgba(139,92,246,.07); box-shadow: 0 0 0 3px rgba(139,92,246,.14); }
+    #url-input.valid { border-color: rgba(74,222,128,.5); }
+    #url-input.invalid { border-color: rgba(248,113,113,.5); }
+
+    #go-btn {
+      padding: 14px 24px; white-space: nowrap;
+      background: linear-gradient(135deg, var(--p5), var(--c5));
+      color: #fff; border: none; border-radius: var(--rs);
+      font-size: .92rem; font-weight: 600; cursor: pointer; font-family: var(--font);
+      display: flex; align-items: center; gap: 8px; min-width: 120px; justify-content: center;
+      box-shadow: 0 0 18px rgba(139,92,246,.3); transition: var(--tr);
+    }
+    #go-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 0 32px rgba(139,92,246,.5); }
+    #go-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+    /* Chips */
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip { padding: 4px 11px; border-radius: 100px; font-size: .76rem; font-weight: 500; cursor: pointer; transition: var(--tr); font-family: var(--mono); background: rgba(139,92,246,.09); border: 1px solid rgba(139,92,246,.2); color: var(--p4); }
+    .chip:hover { background: rgba(139,92,246,.2); border-color: var(--p4); }
+
+    /* Progress Bar */
+    #progress-bar { height: 2px; background: linear-gradient(90deg, var(--p5), var(--c4)); border-radius: 2px; margin-top: 18px; transform-origin: left; transform: scaleX(0); transition: transform .4s ease; }
+    #progress-bar.active { animation: progress 2.5s ease forwards; }
+    @keyframes progress { 0%{transform:scaleX(0)} 70%{transform:scaleX(.85)} 100%{transform:scaleX(.92)} }
+
+    /* ── Result Panel ───────────────────────────────────────────── */
+    #result-panel { margin-top: 24px; display: none; animation: fadeUp .3s ease; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+    /* Success result */
+    .result-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+    .result-title { font-size: .82rem; font-weight: 600; color: var(--txt2); }
+    .result-badges { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+    .badge-pill { padding: 3px 11px; border-radius: 100px; font-size: .73rem; font-weight: 700; letter-spacing: .04em; }
+    .bp-2xx { background: rgba(74,222,128,.12); color: var(--g4); border: 1px solid rgba(74,222,128,.25); }
+    .bp-3xx { background: rgba(250,204,21,.12); color: var(--y4); border: 1px solid rgba(250,204,21,.25); }
+    .bp-4xx,.bp-5xx { background: rgba(248,113,113,.12); color: var(--r4); border: 1px solid rgba(248,113,113,.25); }
+    .bp-cache { background: rgba(34,211,238,.1); color: var(--c4); border: 1px solid rgba(34,211,238,.22); }
+    .bp-https { background: rgba(74,222,128,.1); color: var(--g4); border: 1px solid rgba(74,222,128,.2); }
+    .bp-http  { background: rgba(250,204,21,.1); color: var(--y4); border: 1px solid rgba(250,204,21,.2); }
+
+    /* Metric cards */
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .metric { padding: 14px 16px; border-radius: var(--rs); background: rgba(255,255,255,.03); border: 1px solid var(--border); transition: var(--tr); }
+    .metric:hover { background: rgba(255,255,255,.055); border-color: rgba(139,92,246,.2); }
+    .metric-label { font-size: .68rem; font-weight: 600; color: var(--txt3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 5px; }
+    .metric-value { font-size: 1rem; font-weight: 700; word-break: break-all; }
+    .mv-green { color: var(--g4); }
+    .mv-yellow { color: var(--y4); }
+    .mv-red { color: var(--r4); }
+    .mv-cyan { color: var(--c4); }
+    .mv-purple { color: var(--p4); }
+    .mv-white { color: var(--txt); }
+    .mv-mono { font-family: var(--mono); font-size: .85rem; }
+
+    /* Speed bar */
+    .speed-bar-wrap { margin-bottom: 16px; }
+    .speed-bar-label { display: flex; justify-content: space-between; font-size: .73rem; color: var(--txt3); margin-bottom: 5px; }
+    .speed-bar-track { height: 5px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+    .speed-bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+
+    /* Raw JSON */
+    .json-panel { border-radius: var(--rs); overflow: hidden; border: 1px solid var(--border); }
+    .json-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; background: rgba(255,255,255,.04); border-bottom: 1px solid var(--border); }
+    .json-panel-title { font-size: .72rem; font-weight: 600; color: var(--txt3); letter-spacing: .06em; text-transform: uppercase; }
+    .copy-btn { padding: 3px 10px; border-radius: 5px; font-size: .72rem; font-weight: 600; background: rgba(139,92,246,.14); color: var(--p4); border: 1px solid rgba(139,92,246,.25); cursor: pointer; font-family: var(--font); transition: var(--tr); }
+    .copy-btn:hover { background: rgba(139,92,246,.28); }
+    .copy-btn.copied { background: rgba(74,222,128,.15); color: var(--g4); border-color: rgba(74,222,128,.25); }
+    #raw-json { padding: 16px; background: rgba(0,0,0,.35); color: #e2e8f0; font-family: var(--mono); font-size: .8rem; line-height: 1.75; overflow-x: auto; white-space: pre; max-height: 280px; overflow-y: auto; }
+
+    /* Error state */
+    .err-box { padding: 18px; border-radius: var(--rs); background: rgba(248,113,113,.07); border: 1px solid rgba(248,113,113,.22); display: flex; gap: 12px; }
+    .err-icon { font-size: 1.3rem; flex-shrink: 0; }
+    .err-code { font-family: var(--mono); font-size: .75rem; color: var(--r4); font-weight: 700; margin-bottom: 3px; }
+    .err-msg { font-size: .875rem; color: rgba(248,113,113,.85); line-height: 1.5; }
+
+    /* Download bar */
+    .dl-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 12px 14px; background: rgba(139,92,246,.06); border: 1px solid rgba(139,92,246,.15); border-radius: var(--rs); }
+    .dl-label { font-size: .73rem; font-weight: 600; color: var(--txt3); text-transform: uppercase; letter-spacing: .07em; flex-shrink: 0; }
+    .dl-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+    .dl-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 13px; border-radius: 7px; font-size: .78rem; font-weight: 600; cursor: pointer; border: none; font-family: var(--font); transition: var(--tr); white-space: nowrap; }
+    .dl-json { background: rgba(34,211,238,.12); color: var(--c4); border: 1px solid rgba(34,211,238,.25); }
+    .dl-json:hover { background: rgba(34,211,238,.22); }
+    .dl-pdf { background: rgba(74,222,128,.12); color: var(--g4); border: 1px solid rgba(74,222,128,.25); }
+    .dl-pdf:hover { background: rgba(74,222,128,.22); }
+    .dl-health { background: rgba(250,204,21,.1); color: var(--y4); border: 1px solid rgba(250,204,21,.22); }
+    .dl-health:hover { background: rgba(250,204,21,.2); }
+
+    /* Spinner */
+    .spin { width: 17px; height: 17px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; animation: rotate .65s linear infinite; }
+    @keyframes rotate { to{transform:rotate(360deg)} }
+
+    /* ── Features ───────────────────────────────────────────────── */
+    #features { padding: 60px 0 70px; }
+    .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px,1fr)); gap: 14px; }
+    .feat-card { padding: 26px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--border); transition: var(--tr); position: relative; overflow: hidden; }
+    .feat-card::after { content:''; position:absolute; inset:0; opacity:0; background:radial-gradient(circle at var(--mx,50%) var(--my,50%),rgba(139,92,246,.07),transparent 65%); transition:opacity .4s; }
+    .feat-card:hover::after { opacity:1; }
+    .feat-card:hover { border-color: rgba(139,92,246,.3); transform: translateY(-3px); box-shadow: 0 16px 50px rgba(0,0,0,.25); }
+    .feat-icon { width: 44px; height: 44px; border-radius: 11px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    .feat-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+    .feat-card p { font-size: .845rem; color: var(--txt2); line-height: 1.65; }
+
+    /* ── API Reference ──────────────────────────────────────────── */
+    #api { padding: 60px 0; }
+    .tab-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+    .tab-btn { padding: 8px 16px; border-radius: 7px; font-size: .83rem; font-weight: 600; background: var(--surface); border: 1px solid var(--border); color: var(--txt3); cursor: pointer; font-family: var(--font); transition: var(--tr); }
+    .tab-btn.on { background: rgba(139,92,246,.14); border-color: rgba(139,92,246,.4); color: var(--p4); }
+    .tab-btn:hover:not(.on) { color: var(--txt); }
+    .code-box { background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: var(--rs); padding: 22px; font-family: var(--mono); font-size: .8rem; line-height: 1.85; overflow-x: auto; white-space: pre; color: #e2e8f0; }
+    .jk { color: #93c5fd; } .js { color: #86efac; } .jn { color: #fbbf24; } .jb { color: #f472b6; } .jc { color: #94a3b8; }
+
+    /* ── Config Table ───────────────────────────────────────────── */
+    #config { padding: 40px 0 70px; }
+    .table-wrap { background: rgba(255,255,255,.02); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    th,td { text-align: left; padding: 13px 18px; border-bottom: 1px solid var(--border); font-size: .855rem; }
+    th { color: var(--txt3); font-weight: 600; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr { transition: var(--tr); }
+    tbody tr:hover td { background: var(--surface); }
+    .ek { font-family: var(--mono); color: var(--c4); font-size: .8rem; }
+    .ev { font-family: var(--mono); color: var(--p4); font-size: .8rem; }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    footer { border-top: 1px solid var(--border); padding: 36px 0; background: rgba(5,5,17,.6); backdrop-filter: blur(20px); }
+    .foot-in { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; }
+    .foot-brand { display: flex; align-items: center; gap: 9px; }
+    .foot-icon { width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg,var(--p5),var(--c5)); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+    .foot-links { display: flex; gap: 18px; flex-wrap: wrap; }
+    .fl { font-size: .83rem; color: var(--txt3); text-decoration: none; transition: var(--tr); }
+    .fl:hover { color: var(--p4); }
+    .foot-credit { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); text-align: center; font-size: .83rem; color: var(--txt3); }
+    .foot-credit a { color: var(--p4); text-decoration: none; font-weight: 600; transition: var(--tr); }
+    .foot-credit a:hover { color: var(--c4); }
+
+    /* ── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .input-wrap { flex-direction: column; }
+      #go-btn { width: 100%; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .audit-card { padding: 20px; }
+    }
+    @media (max-width: 420px) {
+      .metrics { grid-template-columns: 1fr; }
+      .hero { padding: 60px 0 50px; }
+    }
+
+    /* ── JSON Colors ─────────────────────────────────────────────── */
+    .tok-k { color: #93c5fd; } .tok-s { color: #86efac; } .tok-n { color: #fbbf24; } .tok-b { color: #f472b6; } .tok-null { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="grid"></div>
+
+  <div class="wrap">
+    <!-- ── NAV ─────────────────────────────────────────────────── -->
+    <nav>
+      <div class="ct">
+        <div class="nav-in">
+          <a href="#" class="brand">
+            <div class="brand-icon">⚡</div>
+            <span class="brand-name">Page<b>Pulse</b></span>
+          </a>
+          <div class="nav-links">
+            <a href="#audit-tool" class="nl">Try It</a>
+            <a href="#features" class="nl">Features</a>
+            <a href="#api" class="nl">API</a>
+            <a href="#config" class="nl">Config</a>
+            <a href="/website-docs" class="nl" style="color:var(--c4)">🏛 Architecture</a>
+            <a href="/docs" class="nl cta">📖 API Docs</a>
+          </div>
+          <div class="hamburger" id="ham" onclick="toggleMenu()" aria-label="Menu" role="button">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="mobile-menu" id="mob-menu">
+      <a href="#audit-tool" class="nl" onclick="closeMenu()">⚡ Try It</a>
+      <a href="#features" class="nl" onclick="closeMenu()">🧩 Features</a>
+      <a href="#api" class="nl" onclick="closeMenu()">📡 API Reference</a>
+      <a href="#config" class="nl" onclick="closeMenu()">⚙️ Config</a>
+      <a href="/website-docs" class="nl" onclick="closeMenu()" style="color:var(--c4)">🏛 Architecture</a>
+      <a href="/docs" class="nl cta" target="_blank">📖 API Docs</a>
+    </div>
+
+    <!-- ── HERO ─────────────────────────────────────────────────── -->
+    <section class="hero">
+      <div class="ct">
+        <div class="badge"><span class="badge-dot"></span> Production-Ready URL Audit Service</div>
+        <h1>Audit Any Website<br><span class="grad">Instantly.</span></h1>
+        <p class="hero-sub">Send a URL, get back a full health report — status code, response time, page title, HTTPS, server headers, redirects, and more. Free. Fast. No sign-up.</p>
+        <div class="hero-btns">
+          <a href="#audit-tool" class="btn btn-pri">⚡ Try It Free</a>
+          <a href="/docs" class="btn btn-sec" target="_blank">📖 API Docs</a>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="stat-n">&lt;5s</div><div class="stat-l">Timeout</div></div>
+          <div class="stat"><div class="stat-n">5min</div><div class="stat-l">Cache TTL</div></div>
+          <div class="stat"><div class="stat-n">100/min</div><div class="stat-l">Rate Limit</div></div>
+          <div class="stat"><div class="stat-n">23</div><div class="stat-l">Tests Pass</div></div>
+          <div class="stat"><div class="stat-n">0ms</div><div class="stat-l">Cache Hit</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── AUDIT TOOL ────────────────────────────────────────────── -->
+    <section id="audit-tool">
+      <div class="ct">
+        <div class="sec-head">
+          <h2>Live <span style="color:var(--p4)">Audit</span> Tool</h2>
+          <p>Try the API directly — no setup, no sign-up, no API key required</p>
+        </div>
+        <div class="audit-card">
+          <div class="input-wrap">
+            <div class="url-field">
+              <span class="url-field-icon">🔗</span>
+              <input id="url-input" type="url" placeholder="https://example.com" autocomplete="off" spellcheck="false" aria-label="Website URL to audit" />
+            </div>
+            <button id="go-btn" onclick="runAudit()" aria-label="Run audit">
+              <span id="btn-label">Audit ⚡</span>
+            </button>
+          </div>
+          <div class="chips" id="quick-chips">
+            <span class="chip" onclick="pick('https://google.com')">google.com</span>
+            <span class="chip" onclick="pick('https://github.com')">github.com</span>
+            <span class="chip" onclick="pick('https://vercel.com')">vercel.com</span>
+            <span class="chip" onclick="pick('https://wikipedia.org')">wikipedia.org</span>
+            <span class="chip" onclick="pick('https://digitalheroesco.com')">digitalheroesco.com</span>
+          </div>
+          <div id="progress-bar"></div>
+          <div id="result-panel"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FEATURES ──────────────────────────────────────────────── -->
+    <section id="features">
+      <div class="ct">
+        <div class="sec-head">
+          <h2>Production-Grade <span style="color:var(--c4)">Features</span></h2>
+          <p>Every feature built for real-world reliability and clean architecture</p>
+        </div>
+        <div class="feat-grid">
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(139,92,246,.14)">⚡</div>
+            <h3>Full URL Audit</h3>
+            <p>Returns status code, response time (ms), page title, HTTPS status, content-type, server, response size (bytes), redirect count and final URL.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(74,222,128,.14)">🧩</div>
+            <h3>Strict Validation</h3>
+            <p>Zod v4 schema rejects ftp://, javascript:, bare text, empty strings — only valid HTTP/HTTPS URLs pass through.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(34,211,238,.14)">⚡</div>
+            <h3>Smart Caching</h3>
+            <p>NodeCache with configurable TTL (default 5 min). Same URL returns instantly from cache. Response includes <code style="color:var(--c4);font-family:var(--mono);font-size:.8em">"cached": true</code>.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(250,204,21,.14)">⏱</div>
+            <h3>Timeout Protection</h3>
+            <p>Requests exceeding 5 seconds are terminated immediately with a structured <code style="color:var(--y4);font-family:var(--mono);font-size:.8em">TIMEOUT</code> error response.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(248,113,113,.14)">🛡</div>
+            <h3>Rate Limiting</h3>
+            <p>express-rate-limit enforces 100 req/min per IP. Returns structured <code style="color:var(--r4);font-family:var(--mono);font-size:.8em">429 RATE_LIMIT_EXCEEDED</code> on breach.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(244,114,182,.14)">🔀</div>
+            <h3>Concurrency Control</h3>
+            <p>p-limit gates max 50 simultaneous audits. Overflow returns <code style="color:var(--pk4);font-family:var(--mono);font-size:.8em">503 SERVER_BUSY</code> immediately.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(139,92,246,.14)">📋</div>
+            <h3>Structured Logging</h3>
+            <p>Pino logger with unique <code style="color:var(--p4);font-family:var(--mono);font-size:.8em">REQ-XXXXXX</code> IDs per request. JSON logs in production, pretty in dev.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(34,211,238,.14)">🔒</div>
+            <h3>Security-First</h3>
+            <p>Helmet.js headers, CORS, gzip compression, multi-stage Docker (non-root user). GitHub Actions CI on every push.</p>
+          </div>
+          <div class="feat-card" onmousemove="trackMouse(event,this)">
+            <div class="feat-icon" style="background:rgba(74,222,128,.14)">✅</div>
+            <h3>23 Tests Passing</h3>
+            <p>Jest + Supertest with 23 test cases covering success, cache hits, timeouts, invalid URLs, error formats, and request IDs.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── API REFERENCE ─────────────────────────────────────────── -->
+    <section id="api">
+      <div class="ct">
+        <div class="sec-head">
+          <h2>API <span style="color:var(--p4)">Reference</span></h2>
+          <p>Full interactive docs at <a href="/docs" style="color:var(--p4);text-decoration:none;font-weight:600" target="_blank">/docs</a> — try every endpoint live</p>
+        </div>
+        <div class="tab-row">
+          <button class="tab-btn on" id="t-req" onclick="showTab('req')">POST /audit</button>
+          <button class="tab-btn" id="t-ok" onclick="showTab('ok')">200 Success</button>
+          <button class="tab-btn" id="t-err" onclick="showTab('err')">Error Codes</button>
+          <button class="tab-btn" id="t-health" onclick="showTab('health')">GET /health</button>
+        </div>
+        <div id="tc-req" class="code-box">POST /audit
+Content-Type: application/json
+
+{
+  <span class="jk">"url"</span>: <span class="js">"https://google.com"</span>
+}</div>
+        <div id="tc-ok" class="code-box" style="display:none">{
+  <span class="jk">"success"</span>: <span class="jb">true</span>,
+  <span class="jk">"url"</span>: <span class="js">"https://google.com"</span>,
+  <span class="jk">"finalUrl"</span>: <span class="js">"https://www.google.com/"</span>,
+  <span class="jk">"statusCode"</span>: <span class="jn">200</span>,
+  <span class="jk">"responseTime"</span>: <span class="jn">182</span>,
+  <span class="jk">"title"</span>: <span class="js">"Google"</span>,
+  <span class="jk">"isHttps"</span>: <span class="jb">true</span>,
+  <span class="jk">"contentType"</span>: <span class="js">"text/html; charset=UTF-8"</span>,
+  <span class="jk">"server"</span>: <span class="js">"gws"</span>,
+  <span class="jk">"responseSize"</span>: <span class="jn">14318</span>,
+  <span class="jk">"redirectCount"</span>: <span class="jn">1</span>,
+  <span class="jk">"cached"</span>: <span class="jb">false</span>,
+  <span class="jk">"timestamp"</span>: <span class="js">"2026-07-25T13:37:00.000Z"</span>,
+  <span class="jk">"requestId"</span>: <span class="js">"REQ-A1B2C3D4E5F6"</span>
+}</div>
+        <div id="tc-err" class="code-box" style="display:none"><span class="jc">// HTTP Status → Error Code</span>
+<span class="jc">// 400 → INVALID_URL    — Not a valid HTTP/HTTPS URL</span>
+<span class="jc">// 429 → RATE_LIMIT_EXCEEDED — Too many requests</span>
+<span class="jc">// 502 → UNREACHABLE    — Cannot connect to website</span>
+<span class="jc">// 503 → SERVER_BUSY    — Concurrency limit reached</span>
+<span class="jc">// 504 → TIMEOUT        — Website didn't respond in time</span>
+
+{
+  <span class="jk">"success"</span>: <span class="jb">false</span>,
+  <span class="jk">"error"</span>: {
+    <span class="jk">"code"</span>: <span class="js">"TIMEOUT"</span>,
+    <span class="jk">"message"</span>: <span class="js">"Website did not respond within 5000ms."</span>
+  },
+  <span class="jk">"requestId"</span>: <span class="js">"REQ-A1B2C3D4E5F6"</span>
+}</div>
+        <div id="tc-health" class="code-box" style="display:none">GET /health
+
+{
+  <span class="jk">"status"</span>: <span class="js">"healthy"</span>,
+  <span class="jk">"uptime"</span>: <span class="jn">3600</span>,
+  <span class="jk">"timestamp"</span>: <span class="js">"2026-07-25T13:37:00.000Z"</span>,
+  <span class="jk">"cache"</span>: {
+    <span class="jk">"keys"</span>: <span class="jn">12</span>,
+    <span class="jk">"hits"</span>: <span class="jn">48</span>,
+    <span class="jk">"misses"</span>: <span class="jn">15</span>
+  },
+  <span class="jk">"version"</span>: <span class="js">"1.0.0"</span>,
+  <span class="jk">"environment"</span>: <span class="js">"production"</span>
+}</div>
+      </div>
+    </section>
+
+    <!-- ── CONFIG ───────────────────────────────────────────────── -->
+    <section id="config">
+      <div class="ct">
+        <div class="sec-head">
+          <h2>Environment <span style="color:var(--c4)">Config</span></h2>
+          <p>All settings configurable via environment variables — no code changes needed</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><span class="ek">PORT</span></td><td><span class="ev">3000</span></td><td>HTTP server port</td></tr>
+              <tr><td><span class="ek">CACHE_TTL_SECONDS</span></td><td><span class="ev">300</span></td><td>How long audit results stay cached (seconds)</td></tr>
+              <tr><td><span class="ek">REQUEST_TIMEOUT_MS</span></td><td><span class="ev">5000</span></td><td>Max wait time for a website to respond (ms)</td></tr>
+              <tr><td><span class="ek">RATE_LIMIT_MAX</span></td><td><span class="ev">100</span></td><td>Max requests per IP per window</td></tr>
+              <tr><td><span class="ek">RATE_LIMIT_WINDOW_MS</span></td><td><span class="ev">60000</span></td><td>Rate limit window duration (ms)</td></tr>
+              <tr><td><span class="ek">MAX_CONCURRENT_AUDITS</span></td><td><span class="ev">50</span></td><td>Max simultaneous active audit requests</td></tr>
+              <tr><td><span class="ek">NODE_ENV</span></td><td><span class="ev">development</span></td><td>Environment: development | production | test</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FOOTER ────────────────────────────────────────────────── -->
+    <footer>
+      <div class="ct">
+        <div class="foot-in">
+          <div class="foot-brand">
+            <div class="foot-icon">⚡</div>
+            <span style="font-weight:700;font-size:.95rem">Page<b style="color:var(--p4)">Pulse</b></span>
+          </div>
+          <div class="foot-links">
+            <a href="/docs" class="fl" target="_blank">API Docs</a>
+            <a href="/health" class="fl" target="_blank">Health</a>
+            <a href="#features" class="fl">Features</a>
+            <a href="#api" class="fl">Reference</a>
+            <a href="#config" class="fl">Config</a>
+          </div>
+        </div>
+        <div class="foot-credit">
+          Built for <a href="https://digitalheroesco.com" target="_blank" rel="noopener">Digital Heroes Training Task</a>
+          &nbsp;·&nbsp; Node.js · TypeScript · Express · Zod · Jest
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    // ── Mobile menu ───────────────────────────────────────────────
+    function toggleMenu() {
+      document.getElementById('mob-menu').classList.toggle('open');
+    }
+    function closeMenu() {
+      document.getElementById('mob-menu').classList.remove('open');
+    }
+
+    // ── Feature card mouse tracking ───────────────────────────────
+    function trackMouse(e, el) {
+      const r = el.getBoundingClientRect();
+      el.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+      el.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+    }
+
+    // ── API Tabs ──────────────────────────────────────────────────
+    const tabs = ['req','ok','err','health'];
+    function showTab(id) {
+      tabs.forEach(t => {
+        document.getElementById('t-'+t).classList.toggle('on', t === id);
+        document.getElementById('tc-'+t).style.display = (t === id) ? 'block' : 'none';
+      });
+    }
+
+    // ── Quick URL chips ───────────────────────────────────────────
+    function pick(url) {
+      const inp = document.getElementById('url-input');
+      inp.value = url;
+      inp.classList.remove('invalid');
+      inp.classList.add('valid');
+      inp.dispatchEvent(new Event('input'));
+      runAudit();
+    }
+
+    // ── Live validation ───────────────────────────────────────────
+    document.getElementById('url-input').addEventListener('input', function() {
+      const v = this.value.trim();
+      if (!v) { this.classList.remove('valid','invalid'); return; }
+      try {
+        const p = new URL(v);
+        const ok = p.protocol === 'http:' || p.protocol === 'https:';
+        this.classList.toggle('valid', ok);
+        this.classList.toggle('invalid', !ok);
+      } catch {
+        this.classList.remove('valid'); this.classList.add('invalid');
+      }
+    });
+    document.getElementById('url-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runAudit();
+    });
+
+    // ── Audit ─────────────────────────────────────────────────────
+    async function runAudit() {
+      const input = document.getElementById('url-input');
+      const btn   = document.getElementById('go-btn');
+      const label = document.getElementById('btn-label');
+      const panel = document.getElementById('result-panel');
+      const bar   = document.getElementById('progress-bar');
+      const url   = input.value.trim();
+
+      if (!url) { shake(input); return; }
+
+      // Loading state
+      btn.disabled = true;
+      label.innerHTML = '<div class="spin"></div> Auditing…';
+      panel.style.display = 'none';
+      bar.className = '';
+      void bar.offsetWidth;
+      bar.className = 'active';
+
+      try {
+        const t0 = Date.now();
+        const res = await fetch('/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        bar.className = '';
+        bar.style.transform = 'scaleX(1)';
+        setTimeout(() => { bar.style.transform = 'scaleX(0)'; bar.style.transition = 'transform .3s ease'; }, 400);
+
+        panel.style.display = 'block';
+        if (data.success) {
+          _lastAuditData = data;           // ← store for download buttons
+          panel.innerHTML = buildSuccess(data);
+        } else {
+          panel.innerHTML = buildError(data);
+        }
+      } catch (err) {
+        bar.className = '';
+        panel.style.display = 'block';
+        panel.innerHTML = buildError({ error: { code: 'NETWORK_ERROR', message: 'Could not reach the server. Is it running?' } });
+      } finally {
+        btn.disabled = false;
+        label.textContent = 'Audit ⚡';
+      }
+    }
+
+    function shake(el) {
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = 'shake .3s ease';
+      el.focus();
+      setTimeout(() => el.style.animation = '', 400);
+    }
+    const shakeStyle = document.createElement('style');
+    shakeStyle.textContent = '@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}';
+    document.head.appendChild(shakeStyle);
+
+    // ── Build success result ──────────────────────────────────────
+    function buildSuccess(d) {
+      const sc    = d.statusCode || 0;
+      const cls   = sc >= 500 ? 'bp-5xx' : sc >= 400 ? 'bp-4xx' : sc >= 300 ? 'bp-3xx' : 'bp-2xx';
+      const rt    = d.responseTime || 0;
+      const speed = rt < 300 ? {c:'mv-green',l:'Fast ⚡'} : rt < 1000 ? {c:'mv-yellow',l:'Medium'} : {c:'mv-red',l:'Slow ⚠️'};
+      const speedPct = Math.min(100, (rt / 5000) * 100);
+      const speedColor = rt < 300 ? '#4ade80' : rt < 1000 ? '#facc15' : '#f87171';
+      const size = d.responseSize ? formatBytes(d.responseSize) : '—';
+      const https = d.isHttps;
+
+      return `
+      <div class="result-top">
+        <span class="result-title">✅ Audit Complete</span>
+        <div class="result-badges">
+          <span class="badge-pill ${cls}">${sc}</span>
+          ${d.cached ? '<span class="badge-pill bp-cache">⚡ Cached</span>' : ''}
+          <span class="badge-pill ${https ? 'bp-https' : 'bp-http'}">${https ? '🔒 HTTPS' : '⚠️ HTTP'}</span>
+        </div>
+      </div>
+
+      <div class="speed-bar-wrap">
+        <div class="speed-bar-label">
+          <span>Response Time</span>
+          <span class="${speed.c}" style="font-weight:700">${rt}ms — ${speed.l}</span>
+        </div>
+        <div class="speed-bar-track">
+          <div class="speed-bar-fill" style="width:0%;background:${speedColor}" data-pct="${speedPct.toFixed(1)}"></div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Page Title</div>
+          <div class="metric-value mv-white" style="font-size:.88rem">${esc(d.title || 'No title')}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Status Code</div>
+          <div class="metric-value ${cls.replace('bp-','mv-').replace('2xx','green').replace('3xx','yellow').replace('4xx','red').replace('5xx','red')}">${sc}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Response Time</div>
+          <div class="metric-value ${speed.c}">${rt} ms</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Response Size</div>
+          <div class="metric-value mv-cyan">${size}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Redirects</div>
+          <div class="metric-value mv-purple">${d.redirectCount ?? 0}</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Server</div>
+          <div class="metric-value mv-white mv-mono" style="font-size:.82rem">${esc(d.server || '—')}</div>
+        </div>
+        <div class="metric" style="grid-column:1/-1">
+          <div class="metric-label">Final URL</div>
+          <div class="metric-value mv-white mv-mono" style="font-size:.78rem;font-weight:500">${esc(d.finalUrl || d.url)}</div>
+        </div>
+      </div>
+
+      <div class="json-panel">
+        <div class="json-panel-head">
+          <span class="json-panel-title">Raw JSON Response</span>
+          <button class="copy-btn" id="cp-btn" onclick="copyJSON(${JSON.stringify(JSON.stringify(d, null, 2)).slice(1,-1)})">Copy</button>
+        </div>
+        <pre id="raw-json">${highlight(JSON.stringify(d, null, 2))}</pre>
+      </div>
+
+      <div class="dl-bar">
+        <span class="dl-label">📥 Download</span>
+        <div class="dl-sep"></div>
+        <button class="dl-btn dl-json" onclick="downloadAuditJSON()">⬇ JSON Report</button>
+        <button class="dl-btn dl-pdf" onclick="downloadAuditPDF()">📄 PDF Report</button>
+        <div class="dl-sep"></div>
+        <button class="dl-btn dl-health" onclick="downloadHealthJSON()">💓 Health Report</button>
+      </div>`;
+
+      // Animate speed bar after render
+      setTimeout(() => {
+        const fill = document.getElementById('spd-fill');
+        if (fill) fill.style.width = speedPct + '%';
+      }, 60);
+    }
+
+    // ── Build error result ────────────────────────────────────────
+    function buildError(d) {
+      const code = d.error?.code || 'ERROR';
+      const msg  = d.error?.message || 'An unexpected error occurred.';
+      const tips = {
+        TIMEOUT: '💡 The website took too long to respond. Try again or check if the site is down.',
+        UNREACHABLE: '💡 The domain could not be resolved. Check if the URL is correct.',
+        INVALID_URL: '💡 Enter a full URL starting with https:// or http://',
+        RATE_LIMIT_EXCEEDED: '💡 You\'ve sent too many requests. Wait a minute and try again.',
+        SERVER_BUSY: '💡 The server is handling too many audits. Try again in a moment.',
+        NETWORK_ERROR: '💡 Make sure the Page Pulse server is running on port 3000.',
+      };
+      return `
+      <div class="err-box">
+        <div class="err-icon">❌</div>
+        <div>
+          <div class="err-code">${code}</div>
+          <div class="err-msg">${esc(msg)}</div>
+          ${tips[code] ? `<div style="margin-top:8px;font-size:.8rem;color:var(--txt2)">${tips[code]}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function formatBytes(b) {
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+      return (b/1048576).toFixed(2) + ' MB';
+    }
+    function highlight(json) {
+      return json
+        .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+\.?\d*([eE][+-]?\d+)?)/g, m => {
+          if (/^"/.test(m)) return /:$/.test(m) ? `<span class="tok-k">${esc(m)}</span>` : `<span class="tok-s">${esc(m)}</span>`;
+          if (/true|false/.test(m)) return `<span class="tok-b">${m}</span>`;
+          if (/null/.test(m)) return `<span class="tok-null">${m}</span>`;
+          return `<span class="tok-n">${m}</span>`;
+        });
+    }
+
+    let _copyData = '';
+    function copyJSON(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        const btn = document.getElementById('cp-btn');
+        if (btn) { btn.textContent = '✓ Copied!'; btn.classList.add('copied'); setTimeout(() => { btn.textContent='Copy'; btn.classList.remove('copied'); }, 2000); }
+      });
+    }
+
+    // ── Download functions ────────────────────────────────────────
+    let _lastAuditData = null;
+
+    function downloadAuditJSON() {
+      if (!_lastAuditData) return;
+      const domain = (_lastAuditData.url || 'audit').replace(/https?:\/\//, '').replace(/\//g, '-').replace(/[^a-z0-9.-]/gi, '_');
+      const filename = `audit-${domain}-${new Date().toISOString().slice(0,10)}.json`;
+      const blob = new Blob([JSON.stringify(_lastAuditData, null, 2)], { type: 'application/json' });
+      triggerDownload(blob, filename);
+    }
+
+    function downloadAuditPDF() {
+      if (!_lastAuditData) return;
+      const d = _lastAuditData;
+      const sc = d.statusCode || 0;
+      const rt = d.responseTime || 0;
+      const speedLabel = rt < 300 ? '🟢 Fast' : rt < 1000 ? '🟡 Medium' : '🔴 Slow';
+      const httpsLabel = d.isHttps ? '🔒 Yes (HTTPS)' : '⚠️ No (HTTP only)';
+      const size = d.responseSize ? formatBytes(d.responseSize) : '—';
+      const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>Audit Report — ${d.url}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a2e;padding:40px;max-width:800px;margin:auto}
+  .header{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;border-bottom:3px solid #8b5cf6;margin-bottom:28px}
+  .brand{font-size:1.5rem;font-weight:800;color:#8b5cf6}
+  .brand span{color:#06b6d4}
+  .meta{font-size:.8rem;color:#666;text-align:right}
+  h2{font-size:1.1rem;font-weight:700;color:#4c1d95;margin:20px 0 12px;padding-bottom:6px;border-bottom:1px solid #ede9fe}
+  .badge{display:inline-block;padding:4px 12px;border-radius:100px;font-size:.78rem;font-weight:700;margin-right:6px}
+  .b-ok{background:#d1fae5;color:#065f46}.b-warn{background:#fef3c7;color:#92400e}.b-err{background:#fee2e2;color:#991b1b}.b-info{background:#ede9fe;color:#4c1d95}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid #f0f0f0;font-size:.875rem}
+  th{background:#f5f3ff;color:#6d28d9;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em}
+  tr:hover td{background:#fafaf8}
+  .url-box{padding:12px 16px;background:#f5f3ff;border-radius:8px;font-family:monospace;font-size:.85rem;word-break:break-all;margin-bottom:20px;border:1px solid #ede9fe}
+  .json-box{background:#1e1e3f;color:#e2e8f0;padding:20px;border-radius:8px;font-family:monospace;font-size:.78rem;line-height:1.7;white-space:pre;overflow-wrap:break-word;margin-top:8px}
+  .footer{margin-top:36px;padding-top:16px;border-top:1px solid #ede9fe;font-size:.75rem;color:#888;text-align:center}
+  @media print{body{padding:20px}.json-box{font-size:.72rem}}
+</style></head><body>
+<div class="header">
+  <div class="brand">Page<span>Pulse</span></div>
+  <div class="meta">
+    <div style="font-weight:700;font-size:.9rem">URL Audit Report</div>
+    <div>Generated: ${now} IST</div>
+    <div>Request ID: ${d.requestId || 'N/A'}</div>
+  </div>
+</div>
+
+<h2>Audited URL</h2>
+<div class="url-box">${d.url}</div>
+
+<h2>Summary</h2>
+<div>
+  <span class="badge ${sc >= 200 && sc < 300 ? 'b-ok' : sc >= 300 && sc < 400 ? 'b-warn' : 'b-err'}">${sc} ${sc >= 200 && sc < 300 ? 'OK' : sc >= 300 && sc < 400 ? 'Redirect' : 'Error'}</span>
+  <span class="badge ${d.isHttps ? 'b-ok' : 'b-warn'}">${httpsLabel}</span>
+  <span class="badge ${d.cached ? 'b-info' : 'b-ok'}">${d.cached ? '⚡ Cached Result' : '🔄 Fresh Fetch'}</span>
+</div>
+
+<h2>Metrics</h2>
+<table>
+  <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Page Title</td><td>${d.title || '—'}</td></tr>
+    <tr><td>HTTP Status Code</td><td><strong>${sc}</strong></td></tr>
+    <tr><td>Response Time</td><td>${rt} ms &nbsp; ${speedLabel}</td></tr>
+    <tr><td>Response Size</td><td>${size}</td></tr>
+    <tr><td>HTTPS Enabled</td><td>${httpsLabel}</td></tr>
+    <tr><td>Redirect Count</td><td>${d.redirectCount ?? 0}</td></tr>
+    <tr><td>Final URL</td><td style="font-family:monospace;font-size:.82rem">${d.finalUrl || d.url}</td></tr>
+    <tr><td>Content Type</td><td>${d.contentType || '—'}</td></tr>
+    <tr><td>Server</td><td>${d.server || '—'}</td></tr>
+    <tr><td>Timestamp</td><td>${d.timestamp || '—'}</td></tr>
+  </tbody>
+</table>
+
+<h2>Raw JSON Response</h2>
+<div class="json-box">${JSON.stringify(d, null, 2)}</div>
+
+<div class="footer">
+  Page Pulse URL Audit Service &nbsp;·&nbsp; Built for <strong>Digital Heroes Training Task</strong> &nbsp;·&nbsp; digitalheroesco.com
+</div>
+<script>window.onload=()=>{window.print()}<\/script>
+</body></html>`;
+
+      const win = window.open('', '_blank', 'width=900,height=700');
+      win.document.write(html);
+      win.document.close();
+    }
+
+    async function downloadHealthJSON() {
+      try {
+        const res = await fetch('/health');
+        const data = await res.json();
+        const filename = `health-report-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+        const report = {
+          _meta: { reportType: 'Page Pulse Health Report', generatedAt: new Date().toISOString(), downloadedFrom: window.location.origin },
+          ...data
+        };
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        triggerDownload(blob, filename);
+      } catch(e) {
+        alert('Could not fetch health data. Is the server running?');
+      }
+    }
+
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    // Animate speed bar after result panel DOM updates
+    const obs = new MutationObserver(() => {
+      const fill = document.querySelector('.speed-bar-fill[data-pct]');
+      if (fill && fill.style.width === '0%') {
+        const pct = fill.getAttribute('data-pct');
+        setTimeout(() => { fill.style.width = pct + '%'; }, 80);
+      }
+    });
+    obs.observe(document.getElementById('result-panel'), { childList: true, subtree: true });
+  </script>
+</body>
+</html>
