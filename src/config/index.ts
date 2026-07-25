@@ -42,8 +42,10 @@ const config = {
     maxActive: parseIntEnv('MAX_CONCURRENT_AUDITS', 50),
   },
 
-  isDevelopment: (process.env['NODE_ENV'] ?? 'development') === 'development',
-  isProduction: process.env['NODE_ENV'] === 'production',
+  // IMPORTANT: Default to production-safe values when NODE_ENV is not set
+  // This prevents devDependencies (like pino-pretty) from being loaded on Render
+  isDevelopment: process.env['NODE_ENV'] === 'development',
+  isProduction: (process.env['NODE_ENV'] ?? 'production') !== 'development',
   isTest: process.env['NODE_ENV'] === 'test',
 } as const;
 
