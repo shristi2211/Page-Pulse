@@ -1,9 +1,12 @@
 import pino from 'pino';
 import config from '../config/index';
 
+// pino-pretty is only available in dev (devDependency) — never use in production
+const usePretty = config.isDevelopment && !config.isTest;
+
 const logger = pino({
   level: config.isTest ? 'silent' : 'info',
-  ...(config.isDevelopment && !config.isTest
+  ...(usePretty
     ? {
         transport: {
           target: 'pino-pretty',

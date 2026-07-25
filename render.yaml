@@ -11,7 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3000
+        value: 10000
       - key: CACHE_TTL_SECONDS
         value: 300
       - key: REQUEST_TIMEOUT_MS
