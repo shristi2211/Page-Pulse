@@ -6,8 +6,7 @@
 ![Node.js](https://img.shields.io/badge/Node.js-22%20LTS-green?logo=node.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue?logo=typescript)
 ![Express](https://img.shields.io/badge/Express-5.x-black?logo=express)
-![License](https://img.shields.io/badge/License-MIT-purple)
-
+![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red)
 ---
 
 ## 🚀 Live Demo
